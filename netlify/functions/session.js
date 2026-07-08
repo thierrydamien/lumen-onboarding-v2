@@ -1,67 +1,47 @@
-// Session store for completed onboarding briefs, backed by Netlify Blobs.
-//   POST /.netlify/functions/session   body: { session }   -> saves, returns { id }
-//   GET  /.netlify/functions/session                       -> { sessions: [summary...] }
-//   GET  /.netlify/functions/session?id=<id>               -> { session } (full record)
+// Session store for completed onboarding briefs (Netlify Functions v2 + Blobs).
+//   POST /.netlify/functions/session   { session }        -> { id }
+//   GET  /.netlify/functions/session                      -> { sessions: [...] }
+//   GET  /.netlify/functions/session?id=<id>              -> { session }
 //
-// Same-origin as the frontends, so no CORS needed. Blobs is provided by the
-// Netlify runtime automatically; the only dependency is @netlify/blobs in
-// package.json. No external database, no keys.
+// In v2, getStore() picks up the site context automatically, so Blobs works
+// with no siteID/token wiring. Only dependency: @netlify/blobs.
 
-const { getStore } = require("@netlify/blobs");
+import { getStore } from "@netlify/blobs";
 
 const STORE = "lumen-sessions";
+export const config = { path: "/.netlify/functions/session" };
 
-exports.handler = async (event) => {
+export default async (req) => {
   let store;
-  try {
-    store = getStore(STORE);
-  } catch (err) {
-    console.error("Blobs store unavailable", err);
-    return json(500, { error: "store_unavailable" });
-  }
+  try { store = getStore(STORE); }
+  catch (err) { console.error("Blobs store unavailable", err); return json(500, { error: "store_unavailable" }); }
 
-  if (event.httpMethod === "POST") {
+  const url = new URL(req.url);
+
+  if (req.method === "POST") {
     let body;
-    try { body = JSON.parse(event.body || "{}"); }
+    try { body = await req.json(); }
     catch { return json(400, { error: "bad_json" }); }
 
-    const session = body.session;
-    if (!session || typeof session !== "object") {
-      return json(400, { error: "missing_session" });
-    }
+    const session = body && body.session;
+    if (!session || typeof session !== "object") return json(400, { error: "missing_session" });
 
     const id = session.id || genId();
-    const record = {
-      ...session,
-      id,
-      savedAt: new Date().toISOString(),
-    };
-
-    try {
-      await store.setJSON(id, record);
-    } catch (err) {
-      console.error("Failed to save session", err);
-      return json(502, { error: "save_failed" });
-    }
+    const record = { ...session, id, savedAt: new Date().toISOString() };
+    try { await store.setJSON(id, record); }
+    catch (err) { console.error("Failed to save session", err); return json(502, { error: "save_failed" }); }
     return json(200, { id });
   }
 
-  if (event.httpMethod === "GET") {
-    const id = event.queryStringParameters && event.queryStringParameters.id;
-
-    // Single full record
+  if (req.method === "GET") {
+    const id = url.searchParams.get("id");
     if (id) {
       try {
         const rec = await store.get(id, { type: "json" });
         if (!rec) return json(404, { error: "not_found" });
         return json(200, { session: rec });
-      } catch (err) {
-        console.error("Failed to read session", err);
-        return json(502, { error: "read_failed" });
-      }
+      } catch (err) { console.error("Failed to read session", err); return json(502, { error: "read_failed" }); }
     }
-
-    // List: return lightweight summaries for the dashboard, newest first.
     try {
       const { blobs } = await store.list();
       const records = await Promise.all(
@@ -72,17 +52,12 @@ exports.handler = async (event) => {
         .map(summarize)
         .sort((a, b) => (b.savedAt || "").localeCompare(a.savedAt || ""));
       return json(200, { sessions });
-    } catch (err) {
-      console.error("Failed to list sessions", err);
-      return json(502, { error: "list_failed" });
-    }
+    } catch (err) { console.error("Failed to list sessions", err); return json(502, { error: "list_failed" }); }
   }
 
   return json(405, { error: "method_not_allowed" });
 };
 
-// Only the fields the dashboard needs in the list view. Full record is fetched
-// by id when a consultant opens one.
 function summarize(r) {
   const company = (r.merged && r.merged.company) || {};
   return {
@@ -106,10 +81,6 @@ function genId() {
   return "s_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 8);
 }
 
-function json(statusCode, obj) {
-  return {
-    statusCode,
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(obj),
-  };
+function json(status, obj) {
+  return new Response(JSON.stringify(obj), { status, headers: { "Content-Type": "application/json" } });
 }
