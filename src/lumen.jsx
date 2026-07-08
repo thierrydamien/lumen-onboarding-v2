@@ -6,6 +6,7 @@ import * as XLSX from "xlsx";
 // are same-origin relative paths (no CORS).
 const CHAT_ENDPOINT = "/.netlify/functions/chat";
 const SESSION_ENDPOINT = "/.netlify/functions/session";
+const DEV = false;
 
 // Decode the client profile the Sales page encoded into ?c=<url-safe base64>.
 function decodeSeedFromURL() {
