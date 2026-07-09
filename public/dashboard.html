@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
+<link rel="icon" href="data:,"/>
 <title>Lumen Onboarding — Proserv Dashboard</title>
 <style>
   :root { --teal:#012B3A; --cherry:#FF4C46; --mint:#DFFFDE; --border:#e2e8f0; --muted:#5b6b76; }
@@ -57,6 +58,26 @@
   var SESSION_ENDPOINT = "/.netlify/functions/session";
   var $ = function (id) { return document.getElementById(id); };
 
+  // ---- Access token gate ----
+  // Session reads require the DASHBOARD_TOKEN set on the Netlify site. Ask once,
+  // keep it for this browser tab (sessionStorage), re-ask if the server says 401.
+  function getToken() { return sessionStorage.getItem("dash_token") || ""; }
+  function askToken(message) {
+    var t = window.prompt(message || "Enter the dashboard access token:");
+    if (t && t.trim()) { sessionStorage.setItem("dash_token", t.trim()); return true; }
+    return false;
+  }
+  function authedFetch(url) {
+    return fetch(url, { headers: { "x-dashboard-token": getToken() } }).then(function (r) {
+      if (r.status === 401) {
+        sessionStorage.removeItem("dash_token");
+        if (askToken("Wrong or expired token. Enter the dashboard access token:")) return authedFetch(url);
+        throw new Error("unauthorized");
+      }
+      return r;
+    });
+  }
+
   function fmtDuration(ms) {
     if (!ms) return "—";
     var m = Math.round(ms / 60000);
@@ -73,8 +94,9 @@
   }
 
   function load() {
+    if (!getToken() && !askToken()) { $("body").innerHTML = '<div class="err">Access token required.</div>'; return; }
     $("body").innerHTML = '<div class="empty">Loading…</div>';
-    fetch(SESSION_ENDPOINT)
+    authedFetch(SESSION_ENDPOINT)
       .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
       .then(function (data) { render(data.sessions || []); })
       .catch(function (e) {
@@ -111,7 +133,7 @@
   function openSession(id) {
     $("sheet").innerHTML = '<div class="empty">Loading…</div>';
     $("modal").classList.add("show");
-    fetch(SESSION_ENDPOINT + "?id=" + encodeURIComponent(id))
+    authedFetch(SESSION_ENDPOINT + "?id=" + encodeURIComponent(id))
       .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
       .then(function (data) { renderSheet(data.session); })
       .catch(function (e) { $("sheet").innerHTML = '<div class="err">Could not open session (' + esc(e.message) + ').</div>'; });
