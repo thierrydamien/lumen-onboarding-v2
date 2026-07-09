@@ -6,6 +6,7 @@ import * as XLSX from "xlsx";
 // are same-origin relative paths (no CORS).
 const CHAT_ENDPOINT = "/.netlify/functions/chat";
 const SESSION_ENDPOINT = "/.netlify/functions/session";
+// Demo-only controls (preview / simulate / rewind) are hidden on the live site.
 const DEV = false;
 
 // Decode the client profile the Sales page encoded into ?c=<url-safe base64>.
@@ -130,7 +131,7 @@ FLOW:
 STEP 1: Company name, then email. Guess industry, ask to confirm.
 STEP 1.5 (GOAL, ask before PATH): Ask ONE open question about what they want to get out of Lumen (e.g. "Before we dive in: what are you hoping to get out of Lumen?"). Capture their answer and emit it in the COMPANY marker's useCase field. Reference this goal throughout the rest of the conversation and let it shape your topic, objective, and channel suggestions.
 STEP 2 (CALIBRATION — silent routing): Ask one question: how familiar are they with social listening tools — just getting started, or experienced? Route silently on the answer: experienced clients get the expert flow (STEP 3 then 4A); newer or unsure clients get the guided flow (STEP 4B, skip STEP 3 entirely — they won't have existing queries). NEVER show [WIDGET:PATH] and never ask the client to choose a path; the approach is your decision, invisible to them.
-STEP 3 (experienced clients only): [WIDGET:QUERIES]. Mention they can paste their queries or import the export file (.txt, .csv or .xlsx) from their previous tool directly in the widget.
+STEP 3 (experienced clients only): [WIDGET:QUERIES]. When introducing it, make clear they can share anything useful from their old setup — queries, topics, or competitors — by pasting it or uploading a file (.txt, .csv or .xlsx), and that we'll use it as a REFERENCE to guide their new build, not just recreate the old one. Do not imply we copy their previous setup across wholesale. Example phrasing: "Nice, that gives us a head start. Share anything from your old setup that helps — queries, topics, or competitors — by pasting it in or uploading a file (.txt, .csv, or .xlsx). We'll use it as a reference to guide your new build, not just recreate the old one."
 IMPORTED CONTENT (CRITICAL — the client never cleans data, you do): Pasted or imported file content will be noisy: headers, dates, owner names, metadata columns, pipes and separators. Extract the useful parts yourself and NEVER ask the client to reformat, trim, or resubmit. If the content is broader than queries — e.g. a filled requirements document containing markets, languages, objectives, topics, channels, or users — treat it as gold: harvest every field it answers, emit the corresponding %% markers, reflect the key values back in ONE short confirmation message ("I can see from your document: markets X, languages Y, objectives Z — shall I use all of that?"), and then SKIP every question and widget the document already answers, jumping ahead to the first genuinely unanswered item. Only ask about values that are ambiguous or missing. A client who hands you a completed document should feel the setup accelerate, not repeat itself. Two exceptions that must still happen even when the document covers them: (1) the OBJECTIVES widget — documents usually list objectives without priorities, so show it anyway framed as "your document lists these — let's just set the order", unless the document states an explicit priority order; (2) the COMPETITORS question, unless the document explicitly names competitors to monitor.
 STEP 4A (expert flow): Ask brands/products (turn 1), competitors (turn 2), probe if vague, then max 3 TOPIC_SUGGESTION explicitly tied to their stated goal. Loop until satisfied.
 STEP 4B (guided flow): [WIDGET:MARKETS] with one context sentence before it. Elicit topics with concrete questions, one per turn, e.g. "Describe a post about your brand you'd never want to miss" or "When did social media last catch you off guard?" — then translate their answers into topics yourself via TOPIC_SUGGESTION (max 3, each rationale tied to what they said). Never ask abstract questions like "what keywords do you want to track".
@@ -1098,9 +1099,11 @@ function OnboardingApp({ seed, onBriefSent, onSeeProserv }) {
   const callAPI = useCallback(async (hist, onDelta, sysExtra="") => {
     const trimmed = hist.slice(-MAX_HIST_TURNS);
     apiCountRef.current += 1;
+    // The system prompt lives server-side in the chat function; the client only
+    // flags whether the OVERSTATE correction pass is needed.
     const res = await fetch(CHAT_ENDPOINT, {
       method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({ system:getSP(personaRef.current)+sysExtra, messages:trimmed, maxTokens:4000 })
+      body: JSON.stringify({ messages:trimmed, maxTokens:4000, overstateFix: !!sysExtra })
     });
     if (!res.ok) throw new Error(`api_${res.status}`);
     const d = await res.json();
@@ -1134,7 +1137,13 @@ function OnboardingApp({ seed, onBriefSent, onSeeProserv }) {
     return raw;
   }, [callAPI]);
 
+  // DEV/simulate only — unreachable in the live build (DEV=false hides the menu).
+  // The live proxy rejects client-supplied system prompts by design, so if this
+  // is ever re-enabled it must go through a separate dev-only endpoint.
   const callClientAPI = useCallback(async (systemPrompt, hist) => {
+    throw new Error("simulate_unavailable_in_live_build");
+  }, []);
+  const _unusedLegacyClientAPI = useCallback(async (systemPrompt, hist) => {
     const flipped = hist.slice(1).map(m=>({role:m.role==="assistant"?"user":"assistant",content:m.content||"."})).slice(-MAX_HIST_TURNS);
     apiCountRef.current += 1;
     const res = await fetch(CHAT_ENDPOINT, {
