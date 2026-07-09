@@ -9,6 +9,7 @@
 import { getStore } from "@netlify/blobs";
 
 const STORE = "lumen-sessions";
+const MAX_BODY_BYTES = 400_000;
 export const config = { path: "/.netlify/functions/session" };
 
 export default async (req) => {
@@ -19,8 +20,19 @@ export default async (req) => {
   const url = new URL(req.url);
 
   if (req.method === "POST") {
+    // Same-origin friction for writes (chat page is same-origin; forged Origins
+    // are possible from scripts, so this is a layer, not the whole defence).
+    const origin = req.headers.get("origin");
+    const siteURL = process.env.URL;
+    if (origin && siteURL && new URL(origin).host !== new URL(siteURL).host) {
+      return json(403, { error: "forbidden_origin" });
+    }
+
+    const rawBody = await req.text();
+    if (rawBody.length > MAX_BODY_BYTES) return json(413, { error: "payload_too_large" });
+
     let body;
-    try { body = await req.json(); }
+    try { body = JSON.parse(rawBody); }
     catch { return json(400, { error: "bad_json" }); }
 
     const session = body && body.session;
@@ -34,6 +46,15 @@ export default async (req) => {
   }
 
   if (req.method === "GET") {
+    // Reads expose client PII, so they require the dashboard token.
+    const expected = process.env.DASHBOARD_TOKEN;
+    if (!expected) {
+      console.error("DASHBOARD_TOKEN is not set on this Netlify site — session reads are locked until it is");
+      return json(500, { error: "dashboard_token_not_configured" });
+    }
+    const provided = req.headers.get("x-dashboard-token");
+    if (provided !== expected) return json(401, { error: "unauthorized" });
+
     const id = url.searchParams.get("id");
     if (id) {
       try {
