@@ -1,0 +1,30 @@
+# Netlify configuration for the Lumen onboarding suite.
+#
+# Layout:
+#   public/                     static frontends (sales, chat, dashboard)
+#   netlify/functions/          server-side proxy + (later) session store
+#
+# The chat frontend calls /.netlify/functions/chat on the SAME origin, so no
+# CORS setup is needed. Set ANTHROPIC_API_KEY in Netlify's environment
+# variables (Site settings > Environment variables), never in the repo.
+
+[build]
+  command = "npm run build"
+  publish = "dist"
+  functions = "netlify/functions"
+
+# Friendly paths (optional): /chat, /sales, /dashboard instead of *.html
+[[redirects]]
+  from = "/chat"
+  to = "/chat.html"
+  status = 200
+
+[[redirects]]
+  from = "/sales"
+  to = "/sales.html"
+  status = 200
+
+[[redirects]]
+  from = "/dashboard"
+  to = "/dashboard.html"
+  status = 200
