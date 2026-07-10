@@ -1,4 +1,4 @@
-Build: PASS (vite build -> dist/chat-main.js, 29 modules).
-Server function syntax (node --check): seed.js OK, session.js OK, chat.js OK.
-GitHub: NOT pushed. Local branch + versions/ snapshots only.
-Generated on the container (ephemeral) — copy off if you need to keep it.
+Build: PASS (vite build -> dist/chat-main.js).
+Server functions (node --check): seed.js OK, session.js OK, chat.js OK.
+Verification: 18 adversarial checks; the 1 FAIL (array merge) fixed in v16; translation + l10n WARNs addressed in v17/v18; dead-code notes cleaned in v19.
+GitHub: NOT pushed. Local branch claude/lumen-onboarding-fixes + versions/ snapshots only.

@@ -1,3 +1,7 @@
+b560867 v19: remove dead sheetLink and unused WIDGET_HINTS
+929b121 v18: localize QUERIES-widget file-import messages
+ff23197 v17: fix translation-quality issues found in native-speaker review
+b9aeafe v16: revert by-name array merge that collapsed same-author channels
 cf82676 v15: harden internal pages and update README
 8cfdee1 v14: escape fmtDate output in the dashboard row (defense-in-depth)
 8663b75 v13: validate and cap the session POST payload
