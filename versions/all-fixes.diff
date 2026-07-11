@@ -7,10 +7,10 @@ index 0000000..b947077
 +node_modules/
 +dist/
 diff --git a/README.md b/README.md
-index ca56bb7..52f4a79 100644
+index ca56bb7..fc769eb 100644
 --- a/README.md
 +++ b/README.md
-@@ -7,40 +7,82 @@ Three apps on one Netlify site, sharing one session store.
+@@ -7,40 +7,85 @@ Three apps on one Netlify site, sharing one session store.
  - `public/dashboard.html` — Proserv dashboard (static, no build)
  - `netlify/functions/chat.js` — Anthropic proxy (holds the API key)
  - `netlify/functions/session.js` — session store (Netlify Blobs)
@@ -34,7 +34,10 @@ index ca56bb7..52f4a79 100644
 +     - Path D (recommended), Apps Script Web App: deploy
 +       `apps-script/onboarding-sheet-webapp.gs` (runs as your Google account, so
 +       it writes into the Proserv folder with no service account or admin needed),
-+       then set `APPS_SCRIPT_WEBAPP_URL` and `APPS_SCRIPT_SECRET`.
++       then set `APPS_SCRIPT_WEBAPP_URL` and `APPS_SCRIPT_SECRET`. This path COPIES
++       the master requirements template and fills in the brief, so the output
++       matches that template exactly (tabs, headings, formatting). The Google-API
++       paths below instead produce the generic multi-tab layout from `buildWorkbook`.
 +     - Or a Google-API path below. These need `GOOGLE_DRIVE_FOLDER_ID` set to the
 +       target folder, plus ONE of:
 +     - Path A, OAuth as a real user (writes into that user's My Drive folder on
@@ -107,73 +110,74 @@ index ca56bb7..52f4a79 100644
    store error, check the package version against current Netlify docs.
 diff --git a/apps-script/onboarding-sheet-webapp.gs b/apps-script/onboarding-sheet-webapp.gs
 new file mode 100644
-index 0000000..ba56305
+index 0000000..14f9f14
 --- /dev/null
 +++ b/apps-script/onboarding-sheet-webapp.gs
-@@ -0,0 +1,100 @@
+@@ -0,0 +1,228 @@
 +/**
 + * Lumen onboarding -> Google Sheet (Apps Script Web App).
 + *
-+ * WHY: this runs as YOUR Google account (like the survey script), so it can create
-+ * files in the Proserv folder on your quota. No service account / OAuth / domain-
-+ * wide delegation needed. The Netlify `sheet.js` function POSTs the brief here.
++ * WHY: runs as YOUR Google account (like the survey script), so it can copy the
++ * master template into the Proserv folder on your quota. No service account /
++ * OAuth / domain-wide delegation. It COPIES the template (exact tabs/formatting)
++ * and fills in the client's responses, then shares + posts to Slack.
 + *
 + * DEPLOY:
 + *   1. script.google.com > New project. Paste this file in.
-+ *   2. Editor > Services (+) > add "Drive API" (advanced service; used for the
-+ *      XLSX -> Google Sheet conversion below).
-+ *   3. Project Settings > Script Properties > add SHARED_SECRET = <a long random
-+ *      string>. Put the SAME value in Netlify env APPS_SCRIPT_SECRET.
-+ *   4. (Optional Slack alert on completion) add Script Property SLACK_BOT_TOKEN =
-+ *      <your xoxb- token> and, if different from the default below, SLACK_CHANNEL.
-+ *      The bot must be a member of that channel. Keep the token here in Script
-+ *      Properties, never hardcoded.
-+ *   5. Deploy > New deployment > type Web app. Execute as: Me. Who has access:
++ *   2. Project Settings > Script Properties:
++ *        SHARED_SECRET   = <a long random string>   (same value in Netlify APPS_SCRIPT_SECRET)
++ *        SLACK_BOT_TOKEN = <your xoxb- token>        (optional; enables the completion alert)
++ *        SLACK_CHANNEL   = <channel id>              (optional; defaults below)
++ *   3. Deploy > New deployment > type Web app. Execute as: Me. Who has access:
 + *      Anyone. Copy the /exec URL into Netlify env APPS_SCRIPT_WEBAPP_URL.
 + *
-+ * SECURITY: "Anyone" means anyone with the URL can invoke it, so every request is
-+ * rejected unless it carries the shared secret. Keep the URL + secret server-side
-+ * (they live in Netlify env; the browser never sees them). Do NOT hardcode secrets
-+ * here — use Script Properties.
++ * SECURITY: "Anyone" access is why every request must carry the shared secret.
++ * Keep the URL + secret + Slack token server-side (Netlify env / Script
++ * Properties); never hardcode secrets here.
++ *
++ * NOTE: the Business Objectives / Users / Topics / Social channels tabs are
++ * populated by matching the template's own labels and headers at runtime, so it
++ * survives minor template edits. The Reports/Dashboards/Alerts tab is filled
++ * best-effort (its layout could not be fully verified) and may need a manual
++ * check; adjust REPORT_COLS / ALERT_COLS below once confirmed.
 + */
 +
-+// Destination folder (same one the survey script writes to).
++const TEMPLATE_ID = "1VC7nIstJw-H4XMqVPe8stQRIwV88S2bZv6sZGgNPus0"; // "do not modify" master (copied, never edited)
 +const DEST_FOLDER_ID = "1BacQuILUAGSKcuUzEwY-iVCh37gt72rY";
-+// Slack channel for the completion alert (override via Script Property SLACK_CHANNEL).
 +const DEFAULT_SLACK_CHANNEL = "C097154H39N";
 +
 +function doPost(e) {
 +  try {
 +    const body = JSON.parse((e && e.postData && e.postData.contents) || "{}");
-+
 +    const expected = PropertiesService.getScriptProperties().getProperty("SHARED_SECRET");
 +    if (!expected || body.secret !== expected) return json_({ error: "unauthorized" });
-+    if (!body.xlsxBase64) return json_({ error: "missing_xlsx" });
 +
-+    const name = String(body.filename || "Lumen Setup Brief").replace(/\.xlsx$/i, "");
-+    const blob = Utilities.newBlob(
-+      Utilities.base64Decode(body.xlsxBase64),
-+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-+      name + ".xlsx"
-+    );
++    const brief = body.brief || {};
++    const company = brief.company || {};
++    const clientName = company.name || body.company || "Client";
++    const title = clientName + " - Lumen Requirements Document";
 +
-+    // Convert the uploaded XLSX into a native Google Sheet inside the folder.
-+    const file = Drive.Files.insert(
-+      { title: name, mimeType: "application/vnd.google-apps.spreadsheet", parents: [{ id: DEST_FOLDER_ID }] },
-+      blob,
-+      { convert: true, supportsAllDrives: true }
-+    );
++    // Copy the master template into the destination folder (never touch the master).
++    const copy = DriveApp.getFileById(TEMPLATE_ID).makeCopy(title, DriveApp.getFolderById(DEST_FOLDER_ID));
++    const ss = SpreadsheetApp.openById(copy.getId());
 +
-+    // Share with the client as editor (this sends them a Google notification email).
-+    if (body.clientEmail && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(body.clientEmail)) {
-+      try { DriveApp.getFileById(file.id).addEditor(body.clientEmail); } catch (err) { /* non-fatal */ }
++    // Populate each tab best-effort; one failure must not abort the rest.
++    safe_(function () { fillBusinessObjectives_(ss, company); });
++    safe_(function () { fillUsers_(ss, brief.users || []); });
++    safe_(function () { fillTopics_(ss, brief.topics || []); });
++    safe_(function () { fillChannels_(ss, brief.channels || []); });
++    safe_(function () { fillReportsAlerts_(ss, brief.reports || [], brief.alerts || []); });
++    SpreadsheetApp.flush();
++
++    const url = copy.getUrl();
++
++    // Share with the client as editor (sends them a Google notification email).
++    const clientEmail = company.email || body.clientEmail || "";
++    if (clientEmail && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clientEmail)) {
++      try { DriveApp.getFileById(copy.getId()).addEditor(clientEmail); } catch (err) { /* non-fatal */ }
 +    }
 +
-+    const url = "https://docs.google.com/spreadsheets/d/" + file.id + "/edit";
-+
-+    // Slack alert: a client finished the assistant and a brief was created.
-+    // Non-fatal — a Slack failure must not fail the Sheet response.
-+    try { postCompletionSlack_(body, url); } catch (err) { /* non-fatal */ }
++    try { postCompletionSlack_(body, company, url); } catch (err) { /* non-fatal */ }
 +
 +    return json_({ url: url });
 +  } catch (err) {
@@ -181,24 +185,151 @@ index 0000000..ba56305
 +  }
 +}
 +
-+// Posts the onboarding-completed alert. No-op unless SLACK_BOT_TOKEN is set.
-+function postCompletionSlack_(body, url) {
++// ---- populate helpers -------------------------------------------------------
++
++function norm_(v) { return String(v == null ? "" : v).toLowerCase().replace(/\s+/g, " ").trim(); }
++function safe_(fn) { try { fn(); } catch (e) { /* per-tab best-effort */ } }
++
++function sheetLike_(ss, re) {
++  const sheets = ss.getSheets();
++  for (let i = 0; i < sheets.length; i++) if (re.test(norm_(sheets[i].getName()))) return sheets[i];
++  return null;
++}
++
++// Business Objectives: key/value layout. Match column A labels, write column B.
++function fillBusinessObjectives_(ss, c) {
++  const sh = sheetLike_(ss, /business objectives/);
++  if (!sh) return;
++  const vals = sh.getDataRange().getValues();
++  const contact = [c.contact, c.email].filter(Boolean).join(" – ");
++  const rules = [
++    [/^date\b/, todayStr_()],
++    [/requirements completed by/, c.contact || ""],
++    [/relevant geographic markets/, c.markets || ""],
++    [/key languages/, c.languages || ""],
++    [/business objectives/, c.objectives || ""],
++    [/planned use cases/, c.useCase || ""],
++    [/preferred onboarding language/, c.onboardingLanguage || "English"],
++    [/preferred time zone/, c.timezone || ""],
++    [/teams.*departments|departments.*platform/, c.teams || ""],
++    [/main point of contact/, contact],
++  ];
++  for (let r = 0; r < vals.length; r++) {
++    const a = norm_(vals[r][0]);
++    if (!a) continue;
++    for (let k = 0; k < rules.length; k++) {
++      if (rules[k][0].test(a)) {
++        if (rules[k][1] !== "") sh.getRange(r + 1, 2).setValue(rules[k][1]);
++        break;
++      }
++    }
++  }
++}
++
++// Detect a header row (the row matching the most field regexes) and return
++// { row: 0-based header index, cols: {field: colIndex} }. null if not confident.
++function detectHeader_(sh, fieldMap, maxScan) {
++  const vals = sh.getDataRange().getValues();
++  let best = null, bestScore = 0;
++  const scan = Math.min(vals.length, maxScan || 25);
++  for (let r = 0; r < scan; r++) {
++    const cols = {}; let score = 0;
++    for (let cIdx = 0; cIdx < vals[r].length; cIdx++) {
++      const cell = norm_(vals[r][cIdx]);
++      if (!cell) continue;
++      for (const field in fieldMap) {
++        if (!(field in cols) && fieldMap[field].test(cell)) { cols[field] = cIdx; score++; }
++      }
++    }
++    if (score > bestScore) { bestScore = score; best = { row: r, cols: cols }; }
++  }
++  return bestScore >= 2 ? best : null;
++}
++
++function writeRows_(sh, header, items, toRow) {
++  const firstDataRow = header.row + 2; // 1-based row just below the header
++  for (let i = 0; i < items.length; i++) {
++    const rowVals = toRow(items[i]);
++    for (const field in header.cols) {
++      const v = rowVals[field];
++      if (v != null && v !== "") sh.getRange(firstDataRow + i, header.cols[field] + 1).setValue(v);
++    }
++  }
++}
++
++function fillUsers_(ss, users) {
++  if (!users.length) return;
++  const sh = sheetLike_(ss, /users/);
++  if (!sh) return;
++  const header = detectHeader_(sh, { firstName: /first name/, lastName: /last name/, role: /role|department/, email: /e-?mail/, access: /access/ });
++  if (!header) return;
++  writeRows_(sh, header, users, function (u) {
++    return { firstName: u.firstName || "", lastName: u.lastName || "", role: u.role || "", email: u.email || "", access: u.access || "" };
++  });
++}
++
++function fillTopics_(ss, topics) {
++  if (!topics.length) return;
++  const sh = sheetLike_(ss, /topic/);
++  if (!sh) return;
++  const header = detectHeader_(sh, { group: /group/, name: /topic.*name|filter name/, keywords: /keyword/, urls: /url/, hashtags: /hashtag/, comments: /comment/ });
++  if (!header) return;
++  writeRows_(sh, header, topics, function (t) {
++    return { group: t.group || "", name: t.name || "", keywords: t.keywords || "", urls: t.urls || "", hashtags: t.hashtags || "", comments: t.comments || t.rationale || "" };
++  });
++}
++
++function fillChannels_(ss, channels) {
++  if (!channels.length) return;
++  const sh = sheetLike_(ss, /channel|social/);
++  if (!sh) return;
++  const header = detectHeader_(sh, { author: /author/, type: /channel type|^type$/, url: /url/, owned: /owned|public/ });
++  if (!header) return;
++  writeRows_(sh, header, channels, function (ch) {
++    return { author: ch.author || "", type: ch.type || "", url: ch.url || "", owned: ch.owned || "" };
++  });
++}
++
++// Best-effort: the Reports/Dashboards/Alerts layout could not be fully verified.
++// Reports detected by name/objective/details/comments; alerts by name/type/details.
++function fillReportsAlerts_(ss, reports, alerts) {
++  const sh = sheetLike_(ss, /report|dashboard|alert/);
++  if (!sh) return;
++  if (reports.length) {
++    const rh = detectHeader_(sh, { name: /report|dashboard|^name|title/, objective: /objective/, details: /detail|kpi|time/, comments: /comment/ });
++    if (rh) writeRows_(sh, rh, reports, function (r) {
++      return { name: r.name || "", objective: r.objective || "", details: r.details || "", comments: r.comments || "" };
++    });
++  }
++  if (alerts.length) {
++    const ah = detectHeader_(sh, { name: /alert|^name/, type: /type|trigger/, details: /detail|kpi|threshold|time/, comments: /comment/ });
++    if (ah) writeRows_(sh, ah, alerts, function (a) {
++      return { name: a.name || "", type: a.type || "", details: a.details || "", comments: a.comments || "" };
++    });
++  }
++}
++
++function todayStr_() {
++  return Utilities.formatDate(new Date(), Session.getScriptTimeZone() || "GMT", "yyyy-MM-dd");
++}
++
++// ---- Slack ------------------------------------------------------------------
++
++function postCompletionSlack_(body, company, url) {
 +  const props = PropertiesService.getScriptProperties();
 +  const token = props.getProperty("SLACK_BOT_TOKEN");
 +  if (!token) return;
 +  const channel = props.getProperty("SLACK_CHANNEL") || DEFAULT_SLACK_CHANNEL;
-+
-+  const contact = [body.contactName, body.clientEmail].filter(Boolean).join(" · ");
++  const contact = [body.contactName || company.contact, company.email || body.clientEmail].filter(Boolean).join(" · ");
 +  const counts = (body.topicsCount != null || body.usersCount != null)
 +    ? "Topics: " + (body.topicsCount != null ? body.topicsCount : "?") + " · Users: " + (body.usersCount != null ? body.usersCount : "?") + "\n"
 +    : "";
 +  const text =
-+    ":white_check_mark: *Lumen onboarding completed* — a setup brief was created.\n" +
-+    "Client: *" + (body.company || "(unnamed)") + "*\n" +
++    ":white_check_mark: *Lumen onboarding completed* — a requirements document was created.\n" +
++    "Client: *" + (company.name || body.company || "(unnamed)") + "*\n" +
 +    (contact ? "Contact: " + contact + "\n" : "") +
 +    counts +
-+    "<" + url + "|Open the setup brief>";
-+
++    "<" + url + "|Open the requirements document>";
 +  UrlFetchApp.fetch("https://slack.com/api/chat.postMessage", {
 +    method: "post",
 +    contentType: "application/json",
@@ -348,10 +479,10 @@ index 54e6cb7..2e29aa9 100644
      catch (err) { console.error("Failed to save session", err); return json(502, { error: "save_failed" }); }
 diff --git a/netlify/functions/sheet.js b/netlify/functions/sheet.js
 new file mode 100644
-index 0000000..efbac40
+index 0000000..748551e
 --- /dev/null
 +++ b/netlify/functions/sheet.js
-@@ -0,0 +1,181 @@
+@@ -0,0 +1,183 @@
 +// Google Sheet generation (Netlify Functions v2).
 +//   POST /.netlify/functions/sheet  { xlsxBase64, filename, clientEmail?, company? }
 +//     -> { url }   (a Google Sheet converted from the brief's XLSX)
@@ -460,20 +591,20 @@ index 0000000..efbac40
 +  try { body = JSON.parse(rawBody); }
 +  catch { return json(400, { error: "bad_json" }); }
 +
-+  const { xlsxBase64, filename, clientEmail, company, contactName, topicsCount, usersCount } = body || {};
-+  if (!xlsxBase64 || typeof xlsxBase64 !== "string") return json(400, { error: "missing_xlsx" });
++  const { xlsxBase64, brief, filename, clientEmail, company, contactName, topicsCount, usersCount } = body || {};
 +  const name = (typeof filename === "string" && filename) || `Lumen Setup Brief${company ? " - " + company : ""}`;
 +
 +  // Path D (preferred when set): hand off to an Apps Script Web App that runs as a
-+  // real Google account, so the Sheet is created in that account's folder on its
-+  // quota — no service account / OAuth / delegation needed. URL + secret are
-+  // server-side env; the browser never sees them.
++  // real Google account. It COPIES the master requirements template and fills in
++  // the structured brief, so the output matches the template exactly. URL + secret
++  // are server-side env; the browser never sees them.
 +  const appsUrl = process.env.APPS_SCRIPT_WEBAPP_URL;
 +  if (appsUrl) {
++    if (!brief || typeof brief !== "object") return json(400, { error: "missing_brief" });
 +    try {
 +      const r = await fetch(appsUrl, {
 +        method: "POST", headers: { "Content-Type": "application/json" },
-+        body: JSON.stringify({ secret: process.env.APPS_SCRIPT_SECRET || "", xlsxBase64, filename: name, clientEmail: clientEmail || "", company: company || "", contactName: contactName || "", topicsCount, usersCount }),
++        body: JSON.stringify({ secret: process.env.APPS_SCRIPT_SECRET || "", brief, filename: name, clientEmail: clientEmail || "", company: company || "", contactName: contactName || "", topicsCount, usersCount }),
 +      });
 +      const d = await r.json().catch(() => ({}));
 +      if (!r.ok || !d.url) {
@@ -487,6 +618,8 @@ index 0000000..efbac40
 +    }
 +  }
 +
++  // Google-API fallback paths convert the client-built XLSX instead.
++  if (!xlsxBase64 || typeof xlsxBase64 !== "string") return json(400, { error: "missing_xlsx" });
 +  try {
 +    const token = await resolveAccessToken();
 +
@@ -683,7 +816,7 @@ index c01a95e..bd56c8a 100644
  
    function fillExample() {
 diff --git a/src/lumen.jsx b/src/lumen.jsx
-index a326b55..c751462 100644
+index a326b55..303df7f 100644
 --- a/src/lumen.jsx
 +++ b/src/lumen.jsx
 @@ -6,19 +6,25 @@ import * as XLSX from "xlsx";
@@ -1374,7 +1507,7 @@ index a326b55..c751462 100644
 +      const xlsxBase64 = XLSX.write(wb, { type: "base64", bookType: "xlsx" });
 +      const sres = await fetch(SHEET_ENDPOINT, {
 +        method: "POST", headers: { "Content-Type": "application/json" },
-+        body: JSON.stringify({ xlsxBase64, filename, clientEmail: merged.company?.email || "", company: merged.company?.name || "", contactName: merged.company?.contact || "", topicsCount: (merged.topics || []).length, usersCount: (users || []).length }),
++        body: JSON.stringify({ xlsxBase64, brief: { ...merged, company: { ...merged.company, onboardingLanguage: uiLang }, users: users || [] }, filename, clientEmail: merged.company?.email || "", company: merged.company?.name || "", contactName: merged.company?.contact || "", topicsCount: (merged.topics || []).length, usersCount: (users || []).length }),
 +      });
 +      if (sres.ok) { const sd = await sres.json().catch(() => ({})); sheetUrl = sd.url || null; }
 +    } catch (e) { console.error("Sheet generation failed (non-fatal)", e); }
@@ -1403,7 +1536,7 @@ index a326b55..c751462 100644
      if (sndRef.current) chime();
      setSending(false);
 -  }, [chime, cdata, onBriefSent, seed]);
-+  }, [chime, cdata, onBriefSent, seed, seedId]);
++  }, [chime, cdata, onBriefSent, seed, seedId, uiLang]);
  
    const maybeDivider = useCallback(prog => {
      const sec = prog?.section;

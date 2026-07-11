@@ -1,3 +1,4 @@
+c8b0f37 v25: brief follows the master requirements template exactly
 c0df0cf v24: Slack alert on onboarding completion + brief created
 4c4f447 v23: add Apps Script Web App path for Sheet generation (preferred)
 8dc0414 v22: support OAuth / delegation / Shared Drive auth for Sheet generation
