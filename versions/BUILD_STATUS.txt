@@ -1,4 +1,4 @@
 Build: PASS (vite build -> dist/chat-main.js).
-Server functions (node --check): seed.js OK, session.js OK, chat.js OK.
-Verification: 18 adversarial checks; the 1 FAIL (array merge) fixed in v16; translation + l10n WARNs addressed in v17/v18; dead-code notes cleaned in v19.
+Server functions (node --check): chat.js, session.js, seed.js, sheet.js all OK.
+Fixes v01-v19 + features v20 (pause/resume, localStorage, tested by build) + v21 (Google Sheet, UNTESTED - needs Google creds + deploy smoke test + ISO 42001 sign-off).
 GitHub: NOT pushed. Local branch claude/lumen-onboarding-fixes + versions/ snapshots only.

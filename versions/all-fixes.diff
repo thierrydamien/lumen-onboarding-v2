@@ -7,15 +7,17 @@ index 0000000..b947077
 +node_modules/
 +dist/
 diff --git a/README.md b/README.md
-index ca56bb7..7fbc539 100644
+index ca56bb7..dd46fe9 100644
 --- a/README.md
 +++ b/README.md
-@@ -7,40 +7,50 @@ Three apps on one Netlify site, sharing one session store.
+@@ -7,40 +7,68 @@ Three apps on one Netlify site, sharing one session store.
  - `public/dashboard.html` — Proserv dashboard (static, no build)
  - `netlify/functions/chat.js` — Anthropic proxy (holds the API key)
  - `netlify/functions/session.js` — session store (Netlify Blobs)
 +- `netlify/functions/seed.js` — seed store for pre-filled client profiles
 +  (Netlify Blobs); keeps consultant notes out of the client link
++- `netlify/functions/sheet.js` — converts the sent brief into an editable Google
++  Sheet (Drive API). Inert until the Google env vars below are set.
  
  ## One-time setup
  
@@ -27,9 +29,21 @@ index ca56bb7..7fbc539 100644
 +   - `DASHBOARD_TOKEN = <a long random string>` — required for the dashboard.
 +     Session reads and consultant-notes reads are locked until this is set, and
 +     the dashboard prompts for it in the browser.
++   - Google Sheet generation (optional; the brief still sends without it):
++     - `GOOGLE_SERVICE_ACCOUNT_EMAIL` — a Google Cloud service account address.
++     - `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY` — its private key (PEM; escaped `\n` ok).
++     - `GOOGLE_DRIVE_FOLDER_ID` — target folder, ideally a Shared Drive the
++       service account belongs to (a bare service account has no Drive quota, so
++       uploads generally must land in a Shared Drive).
  3. Deploy. Build command `npm run build`, publish dir `dist`, functions
     dir `netlify/functions` are already set in `netlify.toml`.
  
++> NOT YET SMOKE-TESTED: `sheet.js` is written against the Drive v3 REST API but
++> has not been run against real Google credentials. Verify the round trip on a
++> deploy before relying on it. GOVERNANCE: it writes client data (possibly PII)
++> to Google Drive — confirm folder, sharing scope, and retention with the ISO
++> 42001 owner first.
++
  ## URLs after deploy
  
  - `/sales` — internal, for the Sales team to generate links
@@ -48,10 +62,16 @@ index ca56bb7..7fbc539 100644
 +  client link carries only that id (`?s=<id>`). Notes never travel in the URL.
 +- The chat fetches the CLIENT-SAFE seed fields (no notes) by id and runs seeded.
  - The chat calls `/.netlify/functions/chat`. The key never touches the browser.
- - On "send", the chat POSTs the completed brief to
-   `/.netlify/functions/session`, stored in Netlify Blobs.
+-- On "send", the chat POSTs the completed brief to
+-  `/.netlify/functions/session`, stored in Netlify Blobs.
 -- The dashboard GETs `/.netlify/functions/session` for the list and
 -  `?id=` for a full record.
++- On "send", the chat builds the XLSX brief and (if Google is configured) POSTs
++  it to `/.netlify/functions/sheet`, which creates an editable Google Sheet,
++  shares it with the client's email, and returns the link. The chat then POSTs
++  the completed brief (with the Sheet URL) to `/.netlify/functions/session`,
++  stored in Netlify Blobs. If Sheet generation is not configured or fails, the
++  brief still sends; the client just gets no Sheet link.
 +- The dashboard GETs `/.netlify/functions/session` for the list and `?id=` for a
 +  full record, and GETs `/.netlify/functions/seed?id=` for the consultant notes.
 +  All dashboard reads send the `DASHBOARD_TOKEN`; notes are returned only to a
@@ -206,8 +226,136 @@ index 54e6cb7..2e29aa9 100644
      const record = { ...session, id, savedAt: new Date().toISOString() };
      try { await store.setJSON(id, record); }
      catch (err) { console.error("Failed to save session", err); return json(502, { error: "save_failed" }); }
+diff --git a/netlify/functions/sheet.js b/netlify/functions/sheet.js
+new file mode 100644
+index 0000000..300b700
+--- /dev/null
++++ b/netlify/functions/sheet.js
+@@ -0,0 +1,122 @@
++// Google Sheet generation (Netlify Functions v2).
++//   POST /.netlify/functions/sheet  { xlsxBase64, filename, clientEmail?, company? }
++//     -> { url }   (a Google Sheet converted from the brief's XLSX)
++//
++// SETUP REQUIRED (this function is inert until configured):
++//   - GOOGLE_SERVICE_ACCOUNT_EMAIL      service account address
++//   - GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY  its private key (PEM; \n may be escaped)
++//   - GOOGLE_DRIVE_FOLDER_ID (recommended) target folder, ideally a Shared Drive
++//     the service account is a member of (a bare service account has no personal
++//     Drive quota, so uploads generally MUST land in a Shared Drive).
++// GOVERNANCE: this writes client data (possibly PII) into Google Drive. Confirm
++// folder location, sharing scope, and retention with the ISO 42001 owner before
++// enabling in production.
++//
++// UNTESTED IN THIS ENVIRONMENT: written against the Drive v3 REST API but not
++// executed here (no credentials / Google runtime). Smoke-test on a real deploy.
++
++import crypto from "node:crypto";
++
++const MAX_BODY_BYTES = 3_000_000; // base64 XLSX, generous
++export const config = { path: "/.netlify/functions/sheet" };
++
++const b64url = (buf) =>
++  Buffer.from(buf).toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
++
++async function getAccessToken(email, privateKey) {
++  const now = Math.floor(Date.now() / 1000);
++  const header = { alg: "RS256", typ: "JWT" };
++  const claim = {
++    iss: email,
++    scope: "https://www.googleapis.com/auth/drive",
++    aud: "https://oauth2.googleapis.com/token",
++    iat: now,
++    exp: now + 3600,
++  };
++  const unsigned = `${b64url(JSON.stringify(header))}.${b64url(JSON.stringify(claim))}`;
++  const signature = crypto.createSign("RSA-SHA256").update(unsigned).sign(privateKey);
++  const assertion = `${unsigned}.${b64url(signature)}`;
++  const res = await fetch("https://oauth2.googleapis.com/token", {
++    method: "POST",
++    headers: { "Content-Type": "application/x-www-form-urlencoded" },
++    body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion }),
++  });
++  const data = await res.json().catch(() => ({}));
++  if (!res.ok || !data.access_token) throw new Error("token_failed:" + (data.error || res.status));
++  return data.access_token;
++}
++
++export default async (req) => {
++  if (req.method !== "POST") return json(405, { error: "method_not_allowed" });
++
++  // Same-origin friction (chat page is same-origin).
++  const origin = req.headers.get("origin");
++  const siteURL = process.env.URL;
++  if (origin && siteURL && new URL(origin).host !== new URL(siteURL).host) {
++    return json(403, { error: "forbidden_origin" });
++  }
++
++  const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
++  const privateKey = (process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY || "").replace(/\\n/g, "\n");
++  const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID || "";
++  if (!email || !privateKey) {
++    // Not configured — let the client degrade gracefully (brief still sends).
++    return json(501, { error: "sheets_not_configured" });
++  }
++
++  const rawBody = await req.text();
++  if (rawBody.length > MAX_BODY_BYTES) return json(413, { error: "payload_too_large" });
++  let body;
++  try { body = JSON.parse(rawBody); }
++  catch { return json(400, { error: "bad_json" }); }
++
++  const { xlsxBase64, filename, clientEmail, company } = body || {};
++  if (!xlsxBase64 || typeof xlsxBase64 !== "string") return json(400, { error: "missing_xlsx" });
++  const name = (typeof filename === "string" && filename) || `Lumen Setup Brief${company ? " - " + company : ""}`;
++
++  try {
++    const token = await getAccessToken(email, privateKey);
++
++    // Multipart upload of the XLSX with a Google-Sheets target mimeType, so Drive
++    // converts it to a native Sheet on the way in.
++    const boundary = "lumen" + crypto.randomUUID();
++    const meta = { name: name.replace(/\.xlsx$/i, ""), mimeType: "application/vnd.google-apps.spreadsheet" };
++    if (folderId) meta.parents = [folderId];
++    const pre =
++      `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n` +
++      `${JSON.stringify(meta)}\r\n` +
++      `--${boundary}\r\nContent-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet\r\n\r\n`;
++    const post = `\r\n--${boundary}--`;
++    const uploadBody = Buffer.concat([Buffer.from(pre, "utf8"), Buffer.from(xlsxBase64, "base64"), Buffer.from(post, "utf8")]);
++
++    const up = await fetch(
++      "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true&fields=id,webViewLink",
++      { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": `multipart/related; boundary=${boundary}` }, body: uploadBody }
++    );
++    const file = await up.json().catch(() => ({}));
++    if (!up.ok || !file.id) {
++      console.error("Drive upload failed", up.status, JSON.stringify(file && file.error));
++      return json(502, { error: "upload_failed" });
++    }
++
++    // Share with the client (as editor) if we have their email. sendNotificationEmail
++    // makes Google email them the link — this is the "you'll get an email" path.
++    if (clientEmail && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clientEmail)) {
++      await fetch(
++        `https://www.googleapis.com/drive/v3/files/${file.id}/permissions?sendNotificationEmail=true&supportsAllDrives=true`,
++        { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
++          body: JSON.stringify({ role: "writer", type: "user", emailAddress: clientEmail }) }
++      ).catch((e) => console.error("Share failed (non-fatal)", e));
++    }
++
++    const url = file.webViewLink || `https://docs.google.com/spreadsheets/d/${file.id}/edit`;
++    return json(200, { url });
++  } catch (err) {
++    console.error("Sheet generation failed", err);
++    return json(502, { error: "sheet_failed" });
++  }
++};
++
++function json(status, obj) {
++  return new Response(JSON.stringify(obj), { status, headers: { "Content-Type": "application/json" } });
++}
 diff --git a/public/dashboard.html b/public/dashboard.html
-index 7d6d6c7..62b9e0c 100644
+index 7d6d6c7..e8efce2 100644
 --- a/public/dashboard.html
 +++ b/public/dashboard.html
 @@ -3,8 +3,12 @@
@@ -266,10 +414,12 @@ index 7d6d6c7..62b9e0c 100644
    function renderSheet(s) {
      var c = (s.merged && s.merged.company) || {};
      var topics = (s.merged && s.merged.topics) || [];
-@@ -180,6 +199,18 @@
+@@ -180,6 +199,20 @@
        html += '<div class="sec">Migrated queries</div><div class="list"><div style="white-space:pre-wrap;font-family:monospace;font-size:12px">' + esc(s.queries) + '</div></div>';
      }
  
++    if (s.sheetUrl) html += '<div class="sec">Editable Google Sheet</div><div class="list"><div><a href="' + esc(s.sheetUrl) + '" target="_blank" rel="noopener noreferrer">Open the client\'s brief in Google Sheets</a></div></div>';
++
 +    var h = s.handoff;
 +    if (h) {
 +      var hrows = [["Maturity", h.maturity], ["Goal in their words", h.goalInOwnWords], ["Hesitations", h.hesitations], ["AI-suggested, unconfirmed", h.aiSuggestedUnconfirmed], ["Follow-ups for the review call", h.followUps], ["Tips for the consultant", h.consultantTips]]
@@ -354,14 +504,15 @@ index c01a95e..bd56c8a 100644
  
    function fillExample() {
 diff --git a/src/lumen.jsx b/src/lumen.jsx
-index a326b55..d98975b 100644
+index a326b55..e828658 100644
 --- a/src/lumen.jsx
 +++ b/src/lumen.jsx
-@@ -6,19 +6,24 @@ import * as XLSX from "xlsx";
+@@ -6,19 +6,25 @@ import * as XLSX from "xlsx";
  // are same-origin relative paths (no CORS).
  const CHAT_ENDPOINT = "/.netlify/functions/chat";
  const SESSION_ENDPOINT = "/.netlify/functions/session";
 +const SEED_ENDPOINT = "/.netlify/functions/seed";
++const SHEET_ENDPOINT = "/.netlify/functions/sheet";
  // Demo-only controls (preview / simulate / rewind) are hidden on the live site.
  const DEV = false;
  
@@ -391,7 +542,7 @@ index a326b55..d98975b 100644
  }
  
  const MIN_MS = 1500;
-@@ -30,7 +35,6 @@ const LINK = "#6D28D9"; // interactive purple
+@@ -30,7 +36,6 @@ const LINK = "#6D28D9"; // interactive purple
  const SECTION_KEYS   = ["company","path","topics","channels","reports","users"];
  const SECTION_LABELS = { company:"About you", path:"Approach", topics:"What to track", channels:"Where to look", reports:"Reports", users:"Your team" };
  const WIDGET_MAX     = { OBJECTIVES:3, TIMEZONE:1 };
@@ -399,7 +550,7 @@ index a326b55..d98975b 100644
  const MARKETS_OPT    = ["United States","United Kingdom","France","Germany","Spain","Italy","Netherlands","Canada","Australia","Brazil","Japan","South Korea","India","Middle East","APAC","LATAM","Global"];
  const LANG_OPT       = ["English","French","German","Spanish","Italian","Dutch","Portuguese","Japanese","Korean","Mandarin","Arabic","Hindi"];
  const OBJ_OPT        = ["Competitive Intelligence","Campaign Optimization","Content Ideation & Recommendation","Reputation Management","Social Measurement","Brand Health Measurement","Issue Tracking","PR Measurement","Influencer Management","Consumer Insights","Trend Research"];
-@@ -50,116 +54,6 @@ const SMOKE_PERSONAS = [
+@@ -50,116 +55,6 @@ const SMOKE_PERSONAS = [
    { key:"offtopic", label:"Off-topic wanderer", emoji:"🦋" },
  ];
  
@@ -516,61 +667,61 @@ index a326b55..d98975b 100644
  
  const CLIENT_BASE = "You are role-playing a CLIENT being onboarded onto Lumen, a social listening tool. Your profile: Jane Smith, Marketing Director at Acme Corp, a consumer goods (footwear and apparel) company. Email jane@acmecorp.com. Competitors: Nike, Adidas, Puma. Markets: US and UK.";
  
-@@ -244,7 +138,7 @@ const I18N = {
+@@ -244,7 +139,7 @@ const I18N = {
      welcomeSub:         "We\u2019ll ask about your goals, markets, and team \u2014 then generate your Lumen setup brief.",
      welcomeSubSeeded:   "Your Lumen team prepared this session for {company}. We\u2019ll talk through your goals, markets, and team \u2014 and build your setup brief as we go.",
      step1Title: "About 15 minutes",
 -    step1Desc:  "Pause anytime \u2014 your progress is saved and your link picks up where you left off.",
-+    step1Desc:  "Plan for about 15 minutes and complete it in one sitting.",
++    step1Desc:  "About 15 minutes. Pause anytime — reopen this link on the same device and you'll pick up where you left off.",
      step2Title: "A conversation, not a form",
      step2Desc:  "We'll cover your goals, what to track, where your audience talks, reports, and your team.",
      step3Title: "Then we take over",
-@@ -261,7 +155,7 @@ const I18N = {
+@@ -261,7 +156,7 @@ const I18N = {
      welcomeSub:         "Nous vous poserons des questions sur vos objectifs, vos marchés et votre équipe, puis nous générerons votre brief de configuration Lumen.",
      welcomeSubSeeded:   "Votre équipe Lumen a préparé cette session pour {company}. Nous aborderons vos objectifs, vos marchés et votre équipe, et construirons votre brief au fur et à mesure.",
      step1Title: "Environ 15 minutes",
 -    step1Desc:  "Faites une pause à tout moment : votre progression est enregistrée et votre lien reprend là où vous vous êtes arrêté.",
-+    step1Desc:  "Prévoyez environ 15 minutes et terminez en une seule fois.",
++    step1Desc:  "Environ 15 minutes. Faites une pause quand vous voulez : rouvrez ce lien sur le même appareil et vous reprendrez là où vous vous étiez arrêté.",
      step2Title: "Une conversation, pas un formulaire",
      step2Desc:  "Nous aborderons vos objectifs, ce qu'il faut suivre, où votre audience s'exprime, les rapports et votre équipe.",
      step3Title: "Ensuite, nous prenons le relais",
-@@ -278,7 +172,7 @@ const I18N = {
+@@ -278,7 +173,7 @@ const I18N = {
      welcomeSub:         "Wir fragen nach Ihren Zielen, Märkten und Ihrem Team und erstellen anschließend Ihr Lumen-Setup-Briefing.",
      welcomeSubSeeded:   "Ihr Lumen-Team hat diese Sitzung für {company} vorbereitet. Wir besprechen Ihre Ziele, Märkte und Ihr Team und erstellen Ihr Setup-Briefing Schritt für Schritt.",
      step1Title: "Etwa 15 Minuten",
 -    step1Desc:  "Jederzeit pausieren: Ihr Fortschritt wird gespeichert und Ihr Link setzt dort fort, wo Sie aufgehört haben.",
-+    step1Desc:  "Planen Sie etwa 15 Minuten ein und schließen Sie das Onboarding in einem Durchgang ab.",
++    step1Desc:  "Etwa 15 Minuten. Jederzeit pausieren: Öffnen Sie diesen Link auf demselben Gerät erneut und Sie machen dort weiter, wo Sie aufgehört haben.",
      step2Title: "Ein Gespräch, kein Formular",
      step2Desc:  "Wir behandeln Ihre Ziele, was Sie beobachten möchten, wo Ihr Publikum spricht, Berichte und Ihr Team.",
      step3Title: "Dann übernehmen wir",
-@@ -295,7 +189,7 @@ const I18N = {
+@@ -295,7 +190,7 @@ const I18N = {
      welcomeSub:         "Le preguntaremos por sus objetivos, mercados y equipo, y luego generaremos su resumen de configuración de Lumen.",
      welcomeSubSeeded:   "Su equipo de Lumen preparó esta sesión para {company}. Hablaremos de sus objetivos, mercados y equipo, y crearemos su resumen de configuración sobre la marcha.",
      step1Title: "Unos 15 minutos",
 -    step1Desc:  "Haga una pausa cuando quiera: su progreso se guarda y su enlace continúa donde lo dejó.",
-+    step1Desc:  "Reserve unos 15 minutos y complételo de una sola vez.",
++    step1Desc:  "Unos 15 minutos. Haga una pausa cuando quiera: vuelva a abrir este enlace en el mismo dispositivo y continuará donde lo dejó.",
      step2Title: "Una conversación, no un formulario",
      step2Desc:  "Cubriremos sus objetivos, qué monitorizar, dónde habla su audiencia, los informes y su equipo.",
      step3Title: "Después nos encargamos nosotros",
-@@ -312,7 +206,7 @@ const I18N = {
+@@ -312,7 +207,7 @@ const I18N = {
      welcomeSub:         "Ti chiederemo i tuoi obiettivi, i mercati e il team, poi genereremo il tuo brief di configurazione Lumen.",
      welcomeSubSeeded:   "Il tuo team Lumen ha preparato questa sessione per {company}. Parleremo dei tuoi obiettivi, dei mercati e del team, e costruiremo il tuo brief di configurazione strada facendo.",
      step1Title: "Circa 15 minuti",
 -    step1Desc:  "Metti in pausa quando vuoi: i tuoi progressi vengono salvati e il tuo link riprende da dove hai lasciato.",
-+    step1Desc:  "Prevedi circa 15 minuti e completa il tutto in un'unica sessione.",
++    step1Desc:  "Circa 15 minuti. Metti in pausa quando vuoi: riapri questo link sullo stesso dispositivo e riprenderai da dove avevi lasciato.",
      step2Title: "Una conversazione, non un modulo",
      step2Desc:  "Copriremo i tuoi obiettivi, cosa monitorare, dove parla il tuo pubblico, i report e il tuo team.",
      step3Title: "Poi ci pensiamo noi",
-@@ -329,7 +223,7 @@ const I18N = {
+@@ -329,7 +224,7 @@ const I18N = {
      welcomeSub:         "سنسألك عن أهدافك وأسواقك وفريقك، ثم ننشئ ملخص إعداد Lumen الخاص بك.",
      welcomeSubSeeded:   "أعدّ فريق Lumen هذه الجلسة لـ {company}. سنتحدث عن أهدافك وأسواقك وفريقك، وننشئ ملخص الإعداد الخاص بك خطوة بخطوة.",
      step1Title: "حوالي 15 دقيقة",
 -    step1Desc:  "توقف مؤقتًا في أي وقت: يتم حفظ تقدمك ويستأنف رابطك من حيث توقفت.",
-+    step1Desc:  "خصّص حوالي 15 دقيقة وأكمل العملية في جلسة واحدة.",
++    step1Desc:  "حوالي 15 دقيقة. توقف مؤقتًا متى شئت: أعد فتح هذا الرابط على الجهاز نفسه وستتابع من حيث توقفت.",
      step2Title: "محادثة، وليست نموذجًا",
      step2Desc:  "سنغطي أهدافك، وما الذي تريد متابعته، وأين يتحدث جمهورك، والتقارير، وفريقك.",
      step3Title: "ثم نتولى نحن الأمر",
-@@ -349,24 +243,72 @@ function L(key, lang, vars) {
+@@ -349,24 +244,88 @@ function L(key, lang, vars) {
    return s;
  }
  
@@ -613,6 +764,22 @@ index a326b55..d98975b 100644
  const gts   = () => new Date().toLocaleTimeString([], { hour:"2-digit", minute:"2-digit" });
  const sleep = ms => new Promise(r => setTimeout(r, ms));
  
++// In-progress autosave to localStorage for same-device pause/resume. Keyed by the
++// seed id when present, else a single default slot. Best-effort: any failure
++// (private mode, quota, storage disabled) degrades to no-resume without throwing.
++const LS_PREFIX = "lumen_onb_v1_";
++const lsKey = seedId => LS_PREFIX + (seedId || "default");
++function lsLoadDraft(seedId) {
++  try {
++    const raw = localStorage.getItem(lsKey(seedId));
++    if (!raw) return null;
++    const o = JSON.parse(raw);
++    return (o && Array.isArray(o.messages) && o.messages.length && o.progress && (o.progress.percent || 0) < 100) ? o : null;
++  } catch { return null; }
++}
++function lsSaveDraft(seedId, snap) { try { localStorage.setItem(lsKey(seedId), JSON.stringify(snap)); } catch {} }
++function lsClearDraft(seedId) { try { localStorage.removeItem(lsKey(seedId)); } catch {} }
++
  // Pure fold of one parsed reply's markers onto a cdata object. Used live and to
  // rebuild cdata from surviving messages after a rewind.
 +// Arrays REPLACE wholesale: the system prompt re-emits the FULL array each time,
@@ -645,7 +812,7 @@ index a326b55..d98975b 100644
  function stripAll(t) {
    let s = t
      .replace(/%%[A-Z]+%%[\s\S]*?%%END%%/g, "")
-@@ -502,28 +444,28 @@ function Stepper({ progress, dark, compact }) {
+@@ -502,28 +461,28 @@ function Stepper({ progress, dark, compact }) {
    })}</div>;
  }
  
@@ -682,7 +849,7 @@ index a326b55..d98975b 100644
    const init = normObjectives(initialData);
    const [sel,setSel]       = useState(init.ranked);
    const [details,setDetails]= useState(init.details);
-@@ -533,14 +475,14 @@ function RankedSelector({ options, max=3, onSubmit, onSkip, hint, initialData })
+@@ -533,14 +492,14 @@ function RankedSelector({ options, max=3, onSubmit, onSkip, hint, initialData })
    const move   = (i,dir) => setSel(s => { const n=[...s], j=i+dir; if (j<0||j>=n.length) return s; [n[i],n[j]]=[n[j],n[i]]; return n; });
    const addC   = () => { const v=custom.trim(); if (v&&!sel.includes(v)&&!atLim) { setSel(s=>[...s,v]); setCustom(""); } };
    return <div style={{marginTop:8}}>
@@ -701,7 +868,7 @@ index a326b55..d98975b 100644
        {sel.map((o,i) => <div key={o} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 0",borderTop:i>0?"1px solid #eef1f5":"none"}}>
          <span style={{width:22,height:22,borderRadius:"50%",background:i===0?A:P,color:"white",fontSize:11,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{i+1}</span>
          <span style={{flex:1,fontSize:13,color:"#1e293b",fontWeight:i===0?600:400}}>{o}</span>
-@@ -549,42 +491,42 @@ function RankedSelector({ options, max=3, onSubmit, onSkip, hint, initialData })
+@@ -549,42 +508,42 @@ function RankedSelector({ options, max=3, onSubmit, onSkip, hint, initialData })
          <button onClick={()=>toggle(o)} aria-label={`Remove ${o}`} style={{background:"transparent",border:"none",color:"#ef4444",cursor:"pointer",fontSize:12}}>✕</button>
        </div>)}
      </div>}
@@ -756,7 +923,7 @@ index a326b55..d98975b 100644
    const [cards,setCards] = useState(suggestions.map(s=>({...s,status:"pending",id:Math.random().toString(36).substr(2,9)})));
    const [dragIdx,setDragIdx] = useState(null);
    const upd  = (i,f,v) => setCards(c=>c.map((x,j)=>j===i?{...x,[f]:v}:x));
-@@ -592,8 +534,8 @@ function TopicCards({ suggestions, onConfirm, onSkip }) {
+@@ -592,8 +551,8 @@ function TopicCards({ suggestions, onConfirm, onSkip }) {
    const kept = cards.filter(c=>c.status==="kept");
    return <div style={{marginTop:8}}>
      <div style={{fontSize:11,color:"#64748b",marginBottom:10,display:"flex",justifyContent:"space-between"}}>
@@ -767,7 +934,7 @@ index a326b55..d98975b 100644
      </div>
      {cards.map((c,i) => <div key={c.id} draggable
        onDragStart={e=>{setDragIdx(i);e.dataTransfer.effectAllowed="move";}}
-@@ -602,8 +544,8 @@ function TopicCards({ suggestions, onConfirm, onSkip }) {
+@@ -602,8 +561,8 @@ function TopicCards({ suggestions, onConfirm, onSkip }) {
        style={{background:c.status==="kept"?"#f0fdf4":c.status==="discarded"?"#fef2f2":"#f8f9fa",border:`1px solid ${c.status==="kept"?"#bbf7d0":c.status==="discarded"?"#fecaca":"#e2e8f0"}`,borderRadius:10,padding:"12px 14px",marginBottom:8,opacity:c.status==="discarded"?0.5:1,display:"flex",alignItems:"center",gap:8}}>
        <div style={{cursor:"grab",padding:"0 8px",color:"#64748b",userSelect:"none"}}>☰</div>
        <div style={{flex:1}}>
@@ -778,7 +945,7 @@ index a326b55..d98975b 100644
          <div style={{fontSize:11,color:"#64748b",fontStyle:"italic"}}>{c.rationale}</div>
        </div>
        <div style={{display:"flex",gap:6,flexShrink:0}}>
-@@ -612,8 +554,8 @@ function TopicCards({ suggestions, onConfirm, onSkip }) {
+@@ -612,8 +571,8 @@ function TopicCards({ suggestions, onConfirm, onSkip }) {
        </div>
      </div>)}
      <div style={{display:"flex",gap:8,marginTop:4}}>
@@ -789,7 +956,7 @@ index a326b55..d98975b 100644
      </div>
    </div>;
  }
-@@ -633,17 +575,17 @@ function capQueryText(t) {
+@@ -633,17 +592,17 @@ function capQueryText(t) {
    if (out.length > Q_MAX_CHARS) { out = out.slice(0, Q_MAX_CHARS); out = out.slice(0, out.lastIndexOf("\n") > 0 ? out.lastIndexOf("\n") : out.length); truncated = true; }
    return { text: out, truncated };
  }
@@ -811,7 +978,7 @@ index a326b55..d98975b 100644
    };
    const onFile = async e => {
      const f = e.target.files?.[0];
-@@ -653,7 +595,7 @@ function QueriesWidget({ onSubmit, initialData }) {
+@@ -653,7 +612,7 @@ function QueriesWidget({ onSubmit, initialData }) {
      // Guard before reading: XLSX.read / f.text() load the whole file into memory,
      // so a huge workbook freezes the tab before the line/char cap ever applies.
      if (f.size > Q_MAX_FILE_BYTES) {
@@ -820,7 +987,7 @@ index a326b55..d98975b 100644
        return;
      }
      try {
-@@ -672,21 +614,21 @@ function QueriesWidget({ onSubmit, initialData }) {
+@@ -672,21 +631,21 @@ function QueriesWidget({ onSubmit, initialData }) {
        } else if (ext === "txt" || ext === "csv" || f.type.startsWith("text/")) {
          ingest(await f.text(), f.name);
        } else {
@@ -848,7 +1015,7 @@ index a326b55..d98975b 100644
      </div>
    </div>;
  }
-@@ -759,7 +701,7 @@ class ModalBoundary extends Component {
+@@ -759,7 +718,7 @@ class ModalBoundary extends Component {
  function ExportModal({ cdata, wState, messages, onClose, onExport, onSend, sending, sendErr }) {
    // Skipped widgets store the string "__skip__" — returning it caused .join/.map
    // crashes downstream (the "blank screen on Review & send" bug). Treat as null.
@@ -857,7 +1024,7 @@ index a326b55..d98975b 100644
    const historyName = useMemo(() => {
      const m = messages.filter(m=>m.role==="user").map(m=>String(m.content||"")).join(" ")
        .match(/(?:company|we are|we're|I'm from|I work at)[^\w]*([A-Z][A-Za-z0-9& ]{1,40})/);
-@@ -774,10 +716,30 @@ function ExportModal({ cdata, wState, messages, onClose, onExport, onSend, sendi
+@@ -774,10 +733,30 @@ function ExportModal({ cdata, wState, messages, onClose, onExport, onSend, sendi
    const [teams,setTeams]= useState((gw("TEAMS")||[]).join(", "));
    const [tz,setTz]     = useState(Array.isArray(gw("TIMEZONE"))?gw("TIMEZONE")[0]:(gw("TIMEZONE")||cdata.company?.timezone||""));
    const [users,setUsers]= useState(gw("USERS")||[]);
@@ -889,7 +1056,7 @@ index a326b55..d98975b 100644
    const emptyTopic = () => ({ name:"",keywords:"",rationale:"",comments:"",id:Date.now(),confirmed:true });
    const confirmTopic = (i,v) => setTopics(ts=>ts.map((x,j)=>j===i?{...x,confirmed:v,comments:v?(x.comments||"").replace(GUESS_RE,"").replace(/^[\s,-]+|[\s,-]+$/g,"")||"Confirmed by client":x.comments}:x));
    const unconfirmed = topics.filter(t=>!t.confirmed).length;
-@@ -805,7 +767,7 @@ function ExportModal({ cdata, wState, messages, onClose, onExport, onSend, sendi
+@@ -805,7 +784,7 @@ function ExportModal({ cdata, wState, messages, onClose, onExport, onSend, sendi
        : <input value={val} onChange={e=>set(e.target.value)} style={{width:"100%",border:`1px solid ${req&&!val?"#fca5a5":"#e2e8f0"}`,borderRadius:7,padding:"7px 10px",fontSize:12,color:"#1e293b",outline:"none"}}/>}
    </div>;
    const addBtn = (label,onClick) => <button onClick={onClick} style={{background:"transparent",border:`1px dashed ${LINK}`,color:LINK,borderRadius:8,padding:"6px 14px",fontSize:12,cursor:"pointer",marginTop:6}}>{label}</button>;
@@ -898,7 +1065,7 @@ index a326b55..d98975b 100644
    return <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000,padding:16}}>
      <div style={{background:"white",borderRadius:16,width:"100%",maxWidth:680,maxHeight:"90vh",display:"flex",flexDirection:"column",boxShadow:"0 16px 48px rgba(0,0,0,0.2)"}}>
        <div style={{padding:"20px 24px 16px",borderBottom:"1px solid #e2e8f0",display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
-@@ -823,7 +785,7 @@ function ExportModal({ cdata, wState, messages, onClose, onExport, onSend, sendi
+@@ -823,7 +802,7 @@ function ExportModal({ cdata, wState, messages, onClose, onExport, onSend, sendi
            </div>
            <div style={{flex:1,minWidth:0}}>
              <div style={{fontWeight:700,fontSize:13,color:"#1e293b"}}>{ready?"Ready to send":"Almost there"}</div>
@@ -907,7 +1074,7 @@ index a326b55..d98975b 100644
              {ready
                ? <div style={{fontSize:12,color:"#166534"}}>All required fields complete and all topics confirmed.</div>
                : <div style={{fontSize:12,color:"#92400e"}}>Still needed: {gaps.join(", ")}</div>}
-@@ -886,6 +848,22 @@ function ExportModal({ cdata, wState, messages, onClose, onExport, onSend, sendi
+@@ -886,6 +865,22 @@ function ExportModal({ cdata, wState, messages, onClose, onExport, onSend, sendi
            {addBtn("+ Add channel", ()=>setChans(cs=>[...cs,{...emptyChan(),id:Date.now()}]))}
            <PasteImport label="Have a list already? Paste it" placeholder={"One channel per line — a URL, a name, or both, e.g. Nike https://twitter.com/nike"} onImport={lines=>setChans(cs=>[...cs,...lines.map((l,i)=>{ const u=l.match(URL_RE)?.[0]||""; const author=l.replace(u,"").replace(/[|,]/g," ").trim(); return {author:author||"",type:guessChanType(u),url:u,owned:"",id:Date.now()+i}; })])}/>
          </Section>
@@ -930,31 +1097,24 @@ index a326b55..d98975b 100644
        </div>
        <div style={{padding:"16px 24px",borderTop:"1px solid #e2e8f0",display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexShrink:0}}>
          <div style={{fontSize:11,color:ready?"#16a34a":"#92400e"}}>{ready?"✓ Ready to download":`${gaps.length} item${gaps.length!==1?"s":""} to resolve first`}</div>
-@@ -911,7 +889,7 @@ function doExport(merged, users, rawMessages) {
-   XLSX.writeFile(wb, filename);
- }
- 
--function FinishCard({ C, cdata, setShowExport, linkCopied, setLinkCopied, sent, sheetLink, onSeeProserv }) {
-+function FinishCard({ C, cdata, setShowExport, linkCopied, setLinkCopied, sent, onSeeProserv }) {
-   return (
-     <div style={{display:"flex",justifyContent:"center",marginBottom:24,animation:"slideUpFade 0.5s ease-out forwards"}}>
-       <div style={{background:`linear-gradient(135deg,${P}15,${P}08)`,border:`1.5px solid ${P}`,borderRadius:14,padding:"20px 28px",textAlign:"center",maxWidth:460}}>
-@@ -919,12 +897,11 @@ function FinishCard({ C, cdata, setShowExport, linkCopied, setLinkCopied, sent,
+@@ -919,11 +914,13 @@ function FinishCard({ C, cdata, setShowExport, linkCopied, setLinkCopied, sent,
          <div style={{fontWeight:700,fontSize:15,color:C.text,marginBottom:6}}>{sent?"Brief sent to your Lumen team":"Setup brief ready"}</div>
          <div style={{fontSize:13,color:C.muted,marginBottom:16,lineHeight:1.5}}>
            {sent
 -            ? "We've received your setup brief and shared an editable copy with you in Google Sheets. Add or change anything until your review call — your consultant sees every update. We'll be in touch within 2 business days."
-+            ? "Your setup brief has been sent to your Lumen team. A consultant will be in touch within 2 business days to book your review call, where you'll finalise the setup together. You can review or download a copy of your brief below."
-             : "Review your brief, then send it straight to your Lumen team \u2014 nothing to download or email."}
+-            : "Review your brief, then send it straight to your Lumen team \u2014 nothing to download or email."}
++            ? (sheetLink
++                ? "Your setup brief has been sent to your Lumen team, and we've shared an editable Google Sheet with you (check your email). Update it anytime before your review call, and your consultant will see the changes. A consultant will be in touch within 2 business days."
++                : "Your setup brief has been sent to your Lumen team. A consultant will be in touch within 2 business days to book your review call, where you'll finalise the setup together. You can review or download a copy of your brief below.")
++            : "Review your brief, then send it straight to your Lumen team\u2014 nothing to download or email."}
          </div>
          <div style={{display:"flex",gap:8,justifyContent:"center",flexWrap:"wrap"}}>
 -          {sent && sheetLink && <a href={sheetLink} target="_blank" rel="noopener noreferrer" style={{background:P,color:"white",borderRadius:10,padding:"10px 20px",fontSize:13,fontWeight:600,cursor:"pointer",textDecoration:"none",display:"inline-block"}}>Open your brief (Google Sheets)</a>}
--          <button onClick={()=>setShowExport(true)} style={{background:sent&&sheetLink?C.card:A,color:sent&&sheetLink?C.muted:"white",border:sent&&sheetLink?`1px solid ${C.border}`:"none",borderRadius:10,padding:"10px 20px",fontSize:13,fontWeight:600,cursor:"pointer"}}>{sent?"Review / download a copy":"\ud83d\udce8 Review \u0026 send"}</button>
-+          <button onClick={()=>setShowExport(true)} style={{background:A,color:"white",border:"none",borderRadius:10,padding:"10px 20px",fontSize:13,fontWeight:600,cursor:"pointer"}}>{sent?"Review / download a copy":"\ud83d\udce8 Review \u0026 send"}</button>
++          {sent && sheetLink && <a href={sheetLink} target="_blank" rel="noopener noreferrer" style={{background:P,color:"white",borderRadius:10,padding:"10px 20px",fontSize:13,fontWeight:600,cursor:"pointer",textDecoration:"none",display:"inline-block"}}>Open your brief (Google Sheet)</a>}
+           <button onClick={()=>setShowExport(true)} style={{background:sent&&sheetLink?C.card:A,color:sent&&sheetLink?C.muted:"white",border:sent&&sheetLink?`1px solid ${C.border}`:"none",borderRadius:10,padding:"10px 20px",fontSize:13,fontWeight:600,cursor:"pointer"}}>{sent?"Review / download a copy":"\ud83d\udce8 Review \u0026 send"}</button>
            {sent && onSeeProserv && <button onClick={onSeeProserv} style={{background:"#012B3A",color:"white",border:"none",borderRadius:10,padding:"10px 16px",fontSize:13,fontWeight:600,cursor:"pointer"}}>See what Proserv receives →</button>}
          </div>
-       </div>
-@@ -932,7 +909,7 @@ function FinishCard({ C, cdata, setShowExport, linkCopied, setLinkCopied, sent,
+@@ -932,7 +929,7 @@ function FinishCard({ C, cdata, setShowExport, linkCopied, setLinkCopied, sent,
    );
  }
  
@@ -963,15 +1123,32 @@ index a326b55..d98975b 100644
    const [theme,setTheme]       = useState("light");
    const [sound,setSound]       = useState(false);
    const [persona,setPersona]   = useState("strategist");
-@@ -957,7 +934,6 @@ function OnboardingApp({ seed, onBriefSent, onSeeProserv }) {
-   const [sent,setSent]         = useState(false);
-   const [sending,setSending]   = useState(false);
-   const [sendErr,setSendErr]   = useState(null);
--  const [sheetLink,setSheetLink] = useState(null);
-   const [streamTxt,setStreamTxt] = useState("");
-   const [ww,setWw] = useState(typeof window !== "undefined" ? window.innerWidth : 1200);
-   useEffect(() => { const f = () => setWw(window.innerWidth); window.addEventListener("resize", f); return () => window.removeEventListener("resize", f); }, []);
-@@ -1143,18 +1119,6 @@ function OnboardingApp({ seed, onBriefSent, onSeeProserv }) {
+@@ -991,9 +988,22 @@ function OnboardingApp({ seed, onBriefSent, onSeeProserv }) {
+   useEffect(() => { botRef.current?.scrollIntoView({behavior:"smooth"}); }, [messages, loading]);
+   useEffect(() => { if (progress.percent===100&&prevPct.current<100&&sndRef.current) chime(); prevPct.current=progress.percent; }, [progress.percent, chime]);
+ 
+-  useEffect(() => { setChecked(true); }, []); // demo: no session backend
++  // On mount, offer to resume an in-progress draft saved on this device.
++  useEffect(() => {
++    const draft = lsLoadDraft(seedId);
++    if (draft) setSaved(draft);
++    setChecked(true);
++  }, []);
+ 
+-  // demo: auto-save to the session store is simulated
++  // Autosave the in-progress draft (debounced) after each turn, until sent.
++  useEffect(() => {
++    if (!started || sent || messages.length === 0) return;
++    if (saveT.current) clearTimeout(saveT.current);
++    saveT.current = setTimeout(() => {
++      lsSaveDraft(seedId, { messages, progress, wState, cdata, history: histRef.current, uiLang, sid: sidRef.current, startedAt: startedAtRef.current, savedAt: Date.now() });
++    }, 600);
++    return () => { if (saveT.current) clearTimeout(saveT.current); };
++  }, [messages, progress, wState, cdata, started, sent, uiLang, seedId]);
+ 
+   const resetSession = useCallback(() => {
+     sidRef.current = crypto.randomUUID();
+@@ -1143,18 +1153,6 @@ function OnboardingApp({ seed, onBriefSent, onSeeProserv }) {
    const callClientAPI = useCallback(async (systemPrompt, hist) => {
      throw new Error("simulate_unavailable_in_live_build");
    }, []);
@@ -990,7 +1167,7 @@ index a326b55..d98975b 100644
  
    const inferPct = useCallback(() => {
      const sub = t => Object.entries(wRef.current).some(([k,v])=>k.endsWith(`-${t}`)&&(v===true||v?.submitted));
-@@ -1169,7 +1133,10 @@ function OnboardingApp({ seed, onBriefSent, onSeeProserv }) {
+@@ -1169,7 +1167,10 @@ function OnboardingApp({ seed, onBriefSent, onSeeProserv }) {
      setCdata(p => mergeCdata(p, pr));
    }, []);
  
@@ -1002,15 +1179,47 @@ index a326b55..d98975b 100644
      // Ensure exactly one trailing user turn for this call. On a fresh send we
      // push it; on retry it's still there from the prior attempt. Either way, if
      // the call fails we pop it back off so a subsequent message can't leave two
-@@ -1215,6 +1182,7 @@ function OnboardingApp({ seed, onBriefSent, onSeeProserv }) {
+@@ -1207,14 +1208,31 @@ function OnboardingApp({ seed, onBriefSent, onSeeProserv }) {
+ 
+   const handleSend = useCallback(async (merged, users) => {
+     setSending(true); setSendErr(null);
+-    const { filename } = buildWorkbook(XLSX, merged, users || []);
++    const { wb, filename } = buildWorkbook(XLSX, merged, users || []);
+     const sentAt = new Date();
++
++    // Generate the editable Google Sheet from the brief's workbook. Best-effort:
++    // if Sheets isn't configured (501) or the call fails, the brief still sends;
++    // the client just doesn't get a Sheet link. Never blocks the confirmation.
++    let sheetUrl = null;
++    try {
++      const xlsxBase64 = XLSX.write(wb, { type: "base64", bookType: "xlsx" });
++      const sres = await fetch(SHEET_ENDPOINT, {
++        method: "POST", headers: { "Content-Type": "application/json" },
++        body: JSON.stringify({ xlsxBase64, filename, clientEmail: merged.company?.email || "", company: merged.company?.name || "" }),
++      });
++      if (sres.ok) { const sd = await sres.json().catch(() => ({})); sheetUrl = sd.url || null; }
++    } catch (e) { console.error("Sheet generation failed (non-fatal)", e); }
++    setSheetLink(sheetUrl);
++
+     const record = {
+       id: sidRef.current,
+       merged, users: users || [],
        handoff: cdata.handoff || null,
        queries: merged.queries || "",
        seed: seed || null,
 +      seedId: seedId || null,
++      sheetUrl,
        durationMs: startedAtRef.current ? (Date.now() - startedAtRef.current) : null,
        apiCalls: apiCountRef.current,
        status: "completed",
-@@ -1241,7 +1209,7 @@ function OnboardingApp({ seed, onBriefSent, onSeeProserv }) {
+@@ -1235,13 +1253,14 @@ function OnboardingApp({ seed, onBriefSent, onSeeProserv }) {
+     }
+     onBriefSent?.({ ...record, filename, sentAt });
+     setSent(true); setShowExport(false);
++    lsClearDraft(seedId); // brief is in; nothing left to resume on this device
+     // Bring the "Brief sent" confirmation into view — without this the modal just
+     // closes and the client is left looking at empty scroll space (reads as a blank
+     // screen / no confirmation).
      requestAnimationFrame(() => { if (msgRef.current) msgRef.current.scrollTop = msgRef.current.scrollHeight; });
      if (sndRef.current) chime();
      setSending(false);
@@ -1019,7 +1228,7 @@ index a326b55..d98975b 100644
  
    const maybeDivider = useCallback(prog => {
      const sec = prog?.section;
-@@ -1364,7 +1332,7 @@ function OnboardingApp({ seed, onBriefSent, onSeeProserv }) {
+@@ -1364,7 +1383,7 @@ function OnboardingApp({ seed, onBriefSent, onSeeProserv }) {
        setCdata(p=>({...p, company:{name:sd.company||"", email:sd.email||"", industry:sd.industry||"", useCase:"", contact:sd.contactName||""}}));
      }
      if (msgRef.current) msgRef.current.scrollTop = 0;
@@ -1028,7 +1237,17 @@ index a326b55..d98975b 100644
      histRef.current = [ini];
      const raw = await callAPILive([ini]);
      const { clean,widgets,topicSuggestions,quickReplies,progress:prog } = parseReply(raw);
-@@ -1433,20 +1401,20 @@ function OnboardingApp({ seed, onBriefSent, onSeeProserv }) {
+@@ -1378,6 +1397,9 @@ function OnboardingApp({ seed, onBriefSent, onSeeProserv }) {
+   const resumeConvo = useCallback(async () => {
+     init(); if (!saved) return;
+     setStarted(true); setLoading(true); setSaved(null);
++    if (saved.uiLang) setUiLang(saved.uiLang);
++    if (saved.sid) sidRef.current = saved.sid;
++    startedAtRef.current = saved.startedAt || Date.now();
+     setMessages(saved.messages); setProgress(saved.progress); setWState(saved.wState||{});
+     prevSecRef.current = saved.progress?.section || null;
+     if (saved.cdata) setCdata(saved.cdata);
+@@ -1433,20 +1455,20 @@ function OnboardingApp({ seed, onBriefSent, onSeeProserv }) {
        lastName:(cdata.company.contact||"").split(" ").slice(1).join(" "),
        email:cdata.company.email, role:"", access:"Admin"
      }] : []);
@@ -1059,7 +1278,7 @@ index a326b55..d98975b 100644
  
    if (!checked) return <div style={{height:"100vh",display:"flex",alignItems:"center",justifyContent:"center"}}>Loading…</div>;
  
-@@ -1454,7 +1422,7 @@ function OnboardingApp({ seed, onBriefSent, onSeeProserv }) {
+@@ -1454,7 +1476,7 @@ function OnboardingApp({ seed, onBriefSent, onSeeProserv }) {
    const last = messages[messages.length-1], showQR = last?.role==="assistant"&&last?.quickReplies?.length>0&&!loading;
    const done = progress.percent === 100;
  
@@ -1068,25 +1287,25 @@ index a326b55..d98975b 100644
    const fmtV = v => { if (v==null||v===""||(Array.isArray(v)&&!v.length)) return null; if (v==="__skip__") return "Skipped"; return Array.isArray(v)?v.join(", "):String(v); };
    const topicsList = (cdata.topics?.length?cdata.topics:Array.isArray(gwp("TOPICS"))?gwp("TOPICS"):[]);
    const usersList  = Array.isArray(gwp("USERS"))?gwp("USERS"):[];
-@@ -1548,7 +1516,7 @@ function OnboardingApp({ seed, onBriefSent, onSeeProserv }) {
+@@ -1548,7 +1570,7 @@ function OnboardingApp({ seed, onBriefSent, onSeeProserv }) {
        {started && <div style={{background:C.card,borderBottom:`1px solid ${C.border}`,padding:"14px 24px",flexShrink:0}}>
          <div style={{maxWidth:640,margin:"0 auto",display:"flex",alignItems:"flex-end",gap:16}}>
            <div style={{flex:1}}><Stepper progress={progress} dark={dark} compact={mob}/></div>
 -          {!mob && <div style={{fontSize:11,color:C.muted,whiteSpace:"nowrap",paddingBottom:2}}>✓ Auto-saved <span style={{opacity:0.6}}>(simulated in demo)</span></div>}
-+          {/* in-progress auto-save / resume is not implemented in this build; no persistence claim shown */}
++          {!mob && !sent && <div style={{fontSize:11,color:C.muted,whiteSpace:"nowrap",paddingBottom:2}}>✓ Saved on this device</div>}
          </div>
        </div>}
  
-@@ -1659,7 +1627,7 @@ function OnboardingApp({ seed, onBriefSent, onSeeProserv }) {
+@@ -1597,7 +1619,7 @@ function OnboardingApp({ seed, onBriefSent, onSeeProserv }) {
+             <p style={{color:P,fontSize:13,fontWeight:600,margin:"0 0 24px"}}>{saved?.progress?.percent||0}% complete</p>
+             <div style={{display:"flex",gap:12}}>
+               <button onClick={resumeConvo} style={{background:P,color:"white",border:"none",borderRadius:10,padding:"13px 28px",cursor:"pointer",fontWeight:600}}>Resume session</button>
+-              <button onClick={resetSession} style={{background:"transparent",border:`1px solid ${C.border}`,color:C.muted,borderRadius:10,padding:"13px 28px",cursor:"pointer"}}>Start fresh</button>
++              <button onClick={()=>{lsClearDraft(seedId);resetSession();}} style={{background:"transparent",border:`1px solid ${C.border}`,color:C.muted,borderRadius:10,padding:"13px 28px",cursor:"pointer"}}>Start fresh</button>
+             </div>
            </div>
-         </div>}
- 
--        {done && !loading && <FinishCard C={C} cdata={cdata} setShowExport={setShowExport} linkCopied={linkCopied} setLinkCopied={setLinkCopied} sent={sent} sheetLink={sheetLink} onSeeProserv={onSeeProserv}/>}
-+        {done && !loading && <FinishCard C={C} cdata={cdata} setShowExport={setShowExport} linkCopied={linkCopied} setLinkCopied={setLinkCopied} sent={sent} onSeeProserv={onSeeProserv}/>}
- 
-         <div ref={botRef}/>
-       </div>
-@@ -1678,6 +1646,9 @@ function OnboardingApp({ seed, onBriefSent, onSeeProserv }) {
+         )}
+@@ -1678,6 +1700,9 @@ function OnboardingApp({ seed, onBriefSent, onSeeProserv }) {
                {loading?<Spinner/>:<span style={{fontSize:18}}>↑</span>}
              </button>
            </div>
@@ -1096,7 +1315,7 @@ index a326b55..d98975b 100644
          </div>
        </div>}
      </div>
-@@ -2085,16 +2056,23 @@ export default function Demo() {
+@@ -2085,16 +2110,23 @@ export default function Demo() {
  }
  
  // ================= LIVE CLIENT CHAT ENTRY =================

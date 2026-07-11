@@ -1,3 +1,6 @@
+5262a50 v21: generate an editable Google Sheet from the sent brief
+25d062d v20: real pause/resume via localStorage (same device)
+aff0f8f chore: untrack node_modules and dist (add .gitignore)
 b560867 v19: remove dead sheetLink and unused WIDGET_HINTS
 929b121 v18: localize QUERIES-widget file-import messages
 ff23197 v17: fix translation-quality issues found in native-speaker review
