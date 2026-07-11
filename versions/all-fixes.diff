@@ -7,10 +7,10 @@ index 0000000..b947077
 +node_modules/
 +dist/
 diff --git a/README.md b/README.md
-index ca56bb7..483f4f1 100644
+index ca56bb7..52f4a79 100644
 --- a/README.md
 +++ b/README.md
-@@ -7,40 +7,76 @@ Three apps on one Netlify site, sharing one session store.
+@@ -7,40 +7,82 @@ Three apps on one Netlify site, sharing one session store.
  - `public/dashboard.html` — Proserv dashboard (static, no build)
  - `netlify/functions/chat.js` — Anthropic proxy (holds the API key)
  - `netlify/functions/session.js` — session store (Netlify Blobs)
@@ -29,8 +29,14 @@ index ca56bb7..483f4f1 100644
 +   - `DASHBOARD_TOKEN = <a long random string>` — required for the dashboard.
 +     Session reads and consultant-notes reads are locked until this is set, and
 +     the dashboard prompts for it in the browser.
-+   - Google Sheet generation (optional; the brief still sends without it). Set
-+     `GOOGLE_DRIVE_FOLDER_ID` to the target folder, then ONE auth path:
++   - Google Sheet generation (optional; the brief still sends without it). Pick
++     ONE path:
++     - Path D (recommended), Apps Script Web App: deploy
++       `apps-script/onboarding-sheet-webapp.gs` (runs as your Google account, so
++       it writes into the Proserv folder with no service account or admin needed),
++       then set `APPS_SCRIPT_WEBAPP_URL` and `APPS_SCRIPT_SECRET`.
++     - Or a Google-API path below. These need `GOOGLE_DRIVE_FOLDER_ID` set to the
++       target folder, plus ONE of:
 +     - Path A, OAuth as a real user (writes into that user's My Drive folder on
 +       their quota; no Workspace admin needed). Use this to target a folder owned
 +       by an account you control: `GOOGLE_OAUTH_CLIENT_ID`,
@@ -99,6 +105,73 @@ index ca56bb7..483f4f1 100644
  - **Netlify Blobs**: verify `@netlify/blobs` resolves on your Netlify build
    (it is included automatically on recent runtimes). If the dashboard shows a
    store error, check the package version against current Netlify docs.
+diff --git a/apps-script/onboarding-sheet-webapp.gs b/apps-script/onboarding-sheet-webapp.gs
+new file mode 100644
+index 0000000..5bf6504
+--- /dev/null
++++ b/apps-script/onboarding-sheet-webapp.gs
+@@ -0,0 +1,61 @@
++/**
++ * Lumen onboarding -> Google Sheet (Apps Script Web App).
++ *
++ * WHY: this runs as YOUR Google account (like the survey script), so it can create
++ * files in the Proserv folder on your quota. No service account / OAuth / domain-
++ * wide delegation needed. The Netlify `sheet.js` function POSTs the brief here.
++ *
++ * DEPLOY:
++ *   1. script.google.com > New project. Paste this file in.
++ *   2. Editor > Services (+) > add "Drive API" (advanced service; used for the
++ *      XLSX -> Google Sheet conversion below).
++ *   3. Project Settings > Script Properties > add SHARED_SECRET = <a long random
++ *      string>. Put the SAME value in Netlify env APPS_SCRIPT_SECRET.
++ *   4. Deploy > New deployment > type Web app. Execute as: Me. Who has access:
++ *      Anyone. Copy the /exec URL into Netlify env APPS_SCRIPT_WEBAPP_URL.
++ *
++ * SECURITY: "Anyone" means anyone with the URL can invoke it, so every request is
++ * rejected unless it carries the shared secret. Keep the URL + secret server-side
++ * (they live in Netlify env; the browser never sees them). Do NOT hardcode secrets
++ * here — use Script Properties.
++ */
++
++// Destination folder (same one the survey script writes to).
++const DEST_FOLDER_ID = "1BacQuILUAGSKcuUzEwY-iVCh37gt72rY";
++
++function doPost(e) {
++  try {
++    const body = JSON.parse((e && e.postData && e.postData.contents) || "{}");
++
++    const expected = PropertiesService.getScriptProperties().getProperty("SHARED_SECRET");
++    if (!expected || body.secret !== expected) return json_({ error: "unauthorized" });
++    if (!body.xlsxBase64) return json_({ error: "missing_xlsx" });
++
++    const name = String(body.filename || "Lumen Setup Brief").replace(/\.xlsx$/i, "");
++    const blob = Utilities.newBlob(
++      Utilities.base64Decode(body.xlsxBase64),
++      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
++      name + ".xlsx"
++    );
++
++    // Convert the uploaded XLSX into a native Google Sheet inside the folder.
++    const file = Drive.Files.insert(
++      { title: name, mimeType: "application/vnd.google-apps.spreadsheet", parents: [{ id: DEST_FOLDER_ID }] },
++      blob,
++      { convert: true, supportsAllDrives: true }
++    );
++
++    // Share with the client as editor (this sends them a Google notification email).
++    if (body.clientEmail && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(body.clientEmail)) {
++      try { DriveApp.getFileById(file.id).addEditor(body.clientEmail); } catch (err) { /* non-fatal */ }
++    }
++
++    return json_({ url: "https://docs.google.com/spreadsheets/d/" + file.id + "/edit" });
++  } catch (err) {
++    return json_({ error: String(err) });
++  }
++}
++
++function json_(obj) {
++  return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
++}
 diff --git a/netlify/functions/chat.js b/netlify/functions/chat.js
 index 7197384..61dfb96 100644
 --- a/netlify/functions/chat.js
@@ -236,16 +309,20 @@ index 54e6cb7..2e29aa9 100644
      catch (err) { console.error("Failed to save session", err); return json(502, { error: "save_failed" }); }
 diff --git a/netlify/functions/sheet.js b/netlify/functions/sheet.js
 new file mode 100644
-index 0000000..7a68cf6
+index 0000000..50b9d4a
 --- /dev/null
 +++ b/netlify/functions/sheet.js
-@@ -0,0 +1,153 @@
+@@ -0,0 +1,181 @@
 +// Google Sheet generation (Netlify Functions v2).
 +//   POST /.netlify/functions/sheet  { xlsxBase64, filename, clientEmail?, company? }
 +//     -> { url }   (a Google Sheet converted from the brief's XLSX)
 +//
-+// SETUP (inert until one auth path below is configured). GOOGLE_DRIVE_FOLDER_ID
-+// sets the target folder in all paths.
++// SETUP (inert until one path below is configured).
++//   Path D - Apps Script Web App (PREFERRED here; runs as a real Google account,
++//     so it writes into that account's Drive folder with no service account /
++//     OAuth / delegation). See apps-script/onboarding-sheet-webapp.gs.
++//       APPS_SCRIPT_WEBAPP_URL, APPS_SCRIPT_SECRET
++//   The Google-API paths below need GOOGLE_DRIVE_FOLDER_ID for the target folder.
 +//   Path A - OAuth as a real user (writes into that user's My Drive folder, on
 +//     their quota; no Workspace admin needed):
 +//       GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET, GOOGLE_OAUTH_REFRESH_TOKEN
@@ -277,9 +354,10 @@ index 0000000..7a68cf6
 +const TOKEN_URL = "https://oauth2.googleapis.com/token";
 +const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive";
 +
-+// True if any auth path is configured, so an unconfigured deploy degrades (501).
++// True if any path is configured, so an unconfigured deploy degrades (501).
 +function sheetsConfigured() {
-+  return !!(process.env.GOOGLE_OAUTH_REFRESH_TOKEN ||
++  return !!(process.env.APPS_SCRIPT_WEBAPP_URL ||
++    process.env.GOOGLE_OAUTH_REFRESH_TOKEN ||
 +    (process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL && process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY));
 +}
 +
@@ -346,6 +424,29 @@ index 0000000..7a68cf6
 +  const { xlsxBase64, filename, clientEmail, company } = body || {};
 +  if (!xlsxBase64 || typeof xlsxBase64 !== "string") return json(400, { error: "missing_xlsx" });
 +  const name = (typeof filename === "string" && filename) || `Lumen Setup Brief${company ? " - " + company : ""}`;
++
++  // Path D (preferred when set): hand off to an Apps Script Web App that runs as a
++  // real Google account, so the Sheet is created in that account's folder on its
++  // quota — no service account / OAuth / delegation needed. URL + secret are
++  // server-side env; the browser never sees them.
++  const appsUrl = process.env.APPS_SCRIPT_WEBAPP_URL;
++  if (appsUrl) {
++    try {
++      const r = await fetch(appsUrl, {
++        method: "POST", headers: { "Content-Type": "application/json" },
++        body: JSON.stringify({ secret: process.env.APPS_SCRIPT_SECRET || "", xlsxBase64, filename: name, clientEmail: clientEmail || "", company: company || "" }),
++      });
++      const d = await r.json().catch(() => ({}));
++      if (!r.ok || !d.url) {
++        console.error("Apps Script sheet failed", r.status, d && d.error);
++        return json(502, { error: "sheet_failed" });
++      }
++      return json(200, { url: d.url });
++    } catch (err) {
++      console.error("Apps Script sheet unreachable", err);
++      return json(502, { error: "sheet_failed" });
++    }
++  }
 +
 +  try {
 +    const token = await resolveAccessToken();

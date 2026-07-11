@@ -1,3 +1,4 @@
+4c4f447 v23: add Apps Script Web App path for Sheet generation (preferred)
 8dc0414 v22: support OAuth / delegation / Shared Drive auth for Sheet generation
 5262a50 v21: generate an editable Google Sheet from the sent brief
 25d062d v20: real pause/resume via localStorage (same device)
