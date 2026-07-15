@@ -110,10 +110,10 @@ index ca56bb7..fc769eb 100644
    store error, check the package version against current Netlify docs.
 diff --git a/apps-script/onboarding-sheet-webapp.gs b/apps-script/onboarding-sheet-webapp.gs
 new file mode 100644
-index 0000000..14f9f14
+index 0000000..f7d6db5
 --- /dev/null
 +++ b/apps-script/onboarding-sheet-webapp.gs
-@@ -0,0 +1,228 @@
+@@ -0,0 +1,266 @@
 +/**
 + * Lumen onboarding -> Google Sheet (Apps Script Web App).
 + *
@@ -320,23 +320,61 @@ index 0000000..14f9f14
 +  const token = props.getProperty("SLACK_BOT_TOKEN");
 +  if (!token) return;
 +  const channel = props.getProperty("SLACK_CHANNEL") || DEFAULT_SLACK_CHANNEL;
-+  const contact = [body.contactName || company.contact, company.email || body.clientEmail].filter(Boolean).join(" · ");
-+  const counts = (body.topicsCount != null || body.usersCount != null)
-+    ? "Topics: " + (body.topicsCount != null ? body.topicsCount : "?") + " · Users: " + (body.usersCount != null ? body.usersCount : "?") + "\n"
-+    : "";
-+  const text =
-+    ":white_check_mark: *Lumen onboarding completed* — a requirements document was created.\n" +
-+    "Client: *" + (company.name || body.company || "(unnamed)") + "*\n" +
-+    (contact ? "Contact: " + contact + "\n" : "") +
-+    counts +
-+    "<" + url + "|Open the requirements document>";
++
++  const name = company.name || body.company || "(unnamed)";
++  const contactName = body.contactName || company.contact || "";
++  const email = company.email || body.clientEmail || "";
++  const contact = [contactName, email].filter(Boolean).join(" · ") || "—";
++  const topics = body.topicsCount != null ? String(body.topicsCount) : "—";
++  const users = body.usersCount != null ? String(body.usersCount) : "—";
++
++  // Two-column fields (Block Kit renders these 2-up), richest first.
++  const fields = [slackField_("Client", name), slackField_("Contact", contact),
++    slackField_("Topics", topics), slackField_("Users", users)];
++  if (company.industry) fields.push(slackField_("Industry", company.industry));
++  if (company.markets)  fields.push(slackField_("Markets", company.markets));
++  const topObjective = firstObjective_(company.objectives);
++  if (topObjective)     fields.push(slackField_("Top objective", topObjective));
++
++  // Context line: only truthful bits. "Prepared by" appears only if the caller
++  // actually supplies it (the sales page does not capture a signed-in user yet);
++  // the edit-access note holds whenever the client was shared on the Sheet.
++  const context = [];
++  if (body.preparedBy) context.push("Link prepared by " + slackEsc_(body.preparedBy));
++  if (email) context.push("Client has edit access to the Sheet until the review call");
++
++  const blocks = [
++    { type: "section", text: { type: "mrkdwn", text: ":white_check_mark: *Lumen onboarding completed* — a requirements document was created." } },
++    { type: "section", fields: fields.slice(0, 10) },
++  ];
++  if (url) blocks.push({ type: "section", text: { type: "mrkdwn", text: "<" + url + "|:page_facing_up: Open the requirements document>" } });
++  if (context.length) blocks.push({ type: "context", elements: [{ type: "mrkdwn", text: context.join("   ·   ") }] });
++
++  // Plain-text fallback for notifications / accessibility (required by Slack).
++  const fallback = "Lumen onboarding completed — " + name + " (" + contact + "). Topics: " + topics + " · Users: " + users;
++
 +  UrlFetchApp.fetch("https://slack.com/api/chat.postMessage", {
 +    method: "post",
 +    contentType: "application/json",
 +    headers: { Authorization: "Bearer " + token },
-+    payload: JSON.stringify({ channel: channel, text: text }),
++    payload: JSON.stringify({ channel: channel, text: fallback, blocks: blocks }),
 +    muteHttpExceptions: true,
 +  });
++}
++
++// A Block Kit two-column field: bold label above an escaped value.
++function slackField_(label, value) {
++  return { type: "mrkdwn", text: "*" + label + ":*\n" + slackEsc_(value) };
++}
++// Escape the three characters Slack treats specially in mrkdwn, so a client
++// value (company name, markets, etc.) can't break the block or inject a link.
++function slackEsc_(s) {
++  return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
++}
++// "1. Reputation Management, 2. Competitive Intelligence" -> "Reputation Management".
++function firstObjective_(objectives) {
++  if (!objectives) return "";
++  return String(objectives).split(",")[0].replace(/^\s*\d+[\.\)]\s*/, "").trim();
 +}
 +
 +function json_(obj) {
