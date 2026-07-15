@@ -816,7 +816,7 @@ index c01a95e..bd56c8a 100644
  
    function fillExample() {
 diff --git a/src/lumen.jsx b/src/lumen.jsx
-index a326b55..303df7f 100644
+index a326b55..4dbd6df 100644
 --- a/src/lumen.jsx
 +++ b/src/lumen.jsx
 @@ -6,19 +6,25 @@ import * as XLSX from "xlsx";
@@ -1327,8 +1327,12 @@ index a326b55..303df7f 100644
      </div>
    </div>;
  }
-@@ -759,7 +718,7 @@ class ModalBoundary extends Component {
- function ExportModal({ cdata, wState, messages, onClose, onExport, onSend, sending, sendErr }) {
+@@ -756,10 +715,10 @@ class ModalBoundary extends Component {
+   }
+ }
+ 
+-function ExportModal({ cdata, wState, messages, onClose, onExport, onSend, sending, sendErr }) {
++function ExportModal({ cdata, wState, messages, onClose, onExport, onSend, sending, sendErr, sent, sheetLink }) {
    // Skipped widgets store the string "__skip__" — returning it caused .join/.map
    // crashes downstream (the "blank screen on Review & send" bug). Treat as null.
 -  const gw = type => { const e=Object.entries(wState||{}).find(([k,v])=>k.endsWith(`-${type}`)&&v?.submitted); const d=e?e[1].data:null; return d==="__skip__"?null:d; };
@@ -1386,7 +1390,7 @@ index a326b55..303df7f 100644
              {ready
                ? <div style={{fontSize:12,color:"#166534"}}>All required fields complete and all topics confirmed.</div>
                : <div style={{fontSize:12,color:"#92400e"}}>Still needed: {gaps.join(", ")}</div>}
-@@ -886,6 +865,22 @@ function ExportModal({ cdata, wState, messages, onClose, onExport, onSend, sendi
+@@ -886,13 +865,29 @@ function ExportModal({ cdata, wState, messages, onClose, onExport, onSend, sendi
            {addBtn("+ Add channel", ()=>setChans(cs=>[...cs,{...emptyChan(),id:Date.now()}]))}
            <PasteImport label="Have a list already? Paste it" placeholder={"One channel per line — a URL, a name, or both, e.g. Nike https://twitter.com/nike"} onImport={lines=>setChans(cs=>[...cs,...lines.map((l,i)=>{ const u=l.match(URL_RE)?.[0]||""; const author=l.replace(u,"").replace(/[|,]/g," ").trim(); return {author:author||"",type:guessChanType(u),url:u,owned:"",id:Date.now()+i}; })])}/>
          </Section>
@@ -1409,7 +1413,15 @@ index a326b55..303df7f 100644
        </div>
        <div style={{padding:"16px 24px",borderTop:"1px solid #e2e8f0",display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexShrink:0}}>
          <div style={{fontSize:11,color:ready?"#16a34a":"#92400e"}}>{ready?"✓ Ready to download":`${gaps.length} item${gaps.length!==1?"s":""} to resolve first`}</div>
-@@ -919,11 +914,13 @@ function FinishCard({ C, cdata, setShowExport, linkCopied, setLinkCopied, sent,
+         <div style={{display:"flex",gap:10,alignItems:"center"}}>
+           {sendErr && <div style={{fontSize:11,color:"#dc2626",maxWidth:200,lineHeight:1.4}}>{sendErr}</div>}
+           <button onClick={onClose} style={{background:"transparent",border:"1px solid #e2e8f0",borderRadius:8,padding:"9px 20px",fontSize:13,color:"#64748b",cursor:"pointer"}}>Cancel</button>
+-          <button onClick={()=>ready&&onExport(merged,users)} disabled={!ready} title={ready?"":"Resolve the readiness gaps first"} style={{background:"transparent",border:`1px solid ${ready?P:"#e2e8f0"}`,color:ready?P:"#94a3b8",borderRadius:8,padding:"9px 18px",fontSize:13,fontWeight:600,cursor:ready?"pointer":"not-allowed"}}>⬇ Download a copy</button>
++          {!(sent && sheetLink) && <button onClick={()=>ready&&onExport(merged,users)} disabled={!ready} title={ready?"":"Resolve the readiness gaps first"} style={{background:"transparent",border:`1px solid ${ready?P:"#e2e8f0"}`,color:ready?P:"#94a3b8",borderRadius:8,padding:"9px 18px",fontSize:13,fontWeight:600,cursor:ready?"pointer":"not-allowed"}}>⬇ Download a copy</button>}
+           <button onClick={()=>ready&&!sending&&onSend(merged,users)} disabled={!ready||sending} title={ready?"":"Resolve the readiness gaps first"} style={{background:ready?A:"#e2e8f0",color:ready?"white":"#94a3b8",border:"none",borderRadius:8,padding:"9px 24px",fontSize:13,fontWeight:600,cursor:ready&&!sending?"pointer":"not-allowed"}}>{sending?"Sending\u2026":"\ud83d\udce8 Send to my Lumen team"}</button>
+         </div>
+       </div>
+@@ -919,12 +914,14 @@ function FinishCard({ C, cdata, setShowExport, linkCopied, setLinkCopied, sent,
          <div style={{fontWeight:700,fontSize:15,color:C.text,marginBottom:6}}>{sent?"Brief sent to your Lumen team":"Setup brief ready"}</div>
          <div style={{fontSize:13,color:C.muted,marginBottom:16,lineHeight:1.5}}>
            {sent
@@ -1422,10 +1434,12 @@ index a326b55..303df7f 100644
          </div>
          <div style={{display:"flex",gap:8,justifyContent:"center",flexWrap:"wrap"}}>
 -          {sent && sheetLink && <a href={sheetLink} target="_blank" rel="noopener noreferrer" style={{background:P,color:"white",borderRadius:10,padding:"10px 20px",fontSize:13,fontWeight:600,cursor:"pointer",textDecoration:"none",display:"inline-block"}}>Open your brief (Google Sheets)</a>}
+-          <button onClick={()=>setShowExport(true)} style={{background:sent&&sheetLink?C.card:A,color:sent&&sheetLink?C.muted:"white",border:sent&&sheetLink?`1px solid ${C.border}`:"none",borderRadius:10,padding:"10px 20px",fontSize:13,fontWeight:600,cursor:"pointer"}}>{sent?"Review / download a copy":"\ud83d\udce8 Review \u0026 send"}</button>
 +          {sent && sheetLink && <a href={sheetLink} target="_blank" rel="noopener noreferrer" style={{background:P,color:"white",borderRadius:10,padding:"10px 20px",fontSize:13,fontWeight:600,cursor:"pointer",textDecoration:"none",display:"inline-block"}}>Open your brief (Google Sheet)</a>}
-           <button onClick={()=>setShowExport(true)} style={{background:sent&&sheetLink?C.card:A,color:sent&&sheetLink?C.muted:"white",border:sent&&sheetLink?`1px solid ${C.border}`:"none",borderRadius:10,padding:"10px 20px",fontSize:13,fontWeight:600,cursor:"pointer"}}>{sent?"Review / download a copy":"\ud83d\udce8 Review \u0026 send"}</button>
++          <button onClick={()=>setShowExport(true)} style={{background:sent&&sheetLink?C.card:A,color:sent&&sheetLink?C.muted:"white",border:sent&&sheetLink?`1px solid ${C.border}`:"none",borderRadius:10,padding:"10px 20px",fontSize:13,fontWeight:600,cursor:"pointer"}}>{sent?(sheetLink?"Review":"Review / download a copy"):"\ud83d\udce8 Review \u0026 send"}</button>
            {sent && onSeeProserv && <button onClick={onSeeProserv} style={{background:"#012B3A",color:"white",border:"none",borderRadius:10,padding:"10px 16px",fontSize:13,fontWeight:600,cursor:"pointer"}}>See what Proserv receives →</button>}
          </div>
+       </div>
 @@ -932,7 +929,7 @@ function FinishCard({ C, cdata, setShowExport, linkCopied, setLinkCopied, sent,
    );
  }
@@ -1599,6 +1613,15 @@ index a326b55..303df7f 100644
    const fmtV = v => { if (v==null||v===""||(Array.isArray(v)&&!v.length)) return null; if (v==="__skip__") return "Skipped"; return Array.isArray(v)?v.join(", "):String(v); };
    const topicsList = (cdata.topics?.length?cdata.topics:Array.isArray(gwp("TOPICS"))?gwp("TOPICS"):[]);
    const usersList  = Array.isArray(gwp("USERS"))?gwp("USERS"):[];
+@@ -1497,7 +1519,7 @@ function OnboardingApp({ seed, onBriefSent, onSeeProserv }) {
+         </div>
+       </div>}
+ 
+-      {showExport && <ModalBoundary onClose={()=>setShowExport(false)}><ExportModal cdata={cdata} wState={wState||{}} messages={messages} onClose={()=>setShowExport(false)} onExport={(merged,users)=>{doExport(merged,users,messages);}} onSend={handleSend} sending={sending} sendErr={sendErr}/></ModalBoundary>}
++      {showExport && <ModalBoundary onClose={()=>setShowExport(false)}><ExportModal cdata={cdata} wState={wState||{}} messages={messages} onClose={()=>setShowExport(false)} onExport={(merged,users)=>{doExport(merged,users,messages);}} onSend={handleSend} sending={sending} sendErr={sendErr} sent={sent} sheetLink={sheetLink}/></ModalBoundary>}
+ 
+       {showPanel && started && <div style={{position:"fixed",top:56,right:0,bottom:0,width:mob?"100%":320,background:C.card,borderLeft:`1px solid ${C.border}`,zIndex:500,overflowY:"auto",padding:"16px 18px",boxShadow:sideCol?"none":"-4px 0 16px rgba(0,0,0,0.08)"}}>
+         <div style={{fontSize:11,color:C.muted,margin:"0 0 12px",lineHeight:1.5,background:C.hi,borderRadius:8,padding:"8px 10px"}}>{L("correctionHint", uiLang)}</div>
 @@ -1548,7 +1570,7 @@ function OnboardingApp({ seed, onBriefSent, onSeeProserv }) {
        {started && <div style={{background:C.card,borderBottom:`1px solid ${C.border}`,padding:"14px 24px",flexShrink:0}}>
          <div style={{maxWidth:640,margin:"0 auto",display:"flex",alignItems:"flex-end",gap:16}}>
