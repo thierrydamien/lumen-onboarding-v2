@@ -474,10 +474,10 @@ index 0000000..25c22ad
 +  return new Response(JSON.stringify(obj), { status, headers: { "Content-Type": "application/json" } });
 +}
 diff --git a/netlify/functions/session.js b/netlify/functions/session.js
-index 54e6cb7..2e29aa9 100644
+index 54e6cb7..059c4c9 100644
 --- a/netlify/functions/session.js
 +++ b/netlify/functions/session.js
-@@ -36,9 +36,22 @@ export default async (req) => {
+@@ -36,11 +36,36 @@ export default async (req) => {
      catch { return json(400, { error: "bad_json" }); }
  
      const session = body && body.session;
@@ -500,8 +500,62 @@ index 54e6cb7..2e29aa9 100644
 +
 +    const id = (typeof session.id === "string" && session.id) || genId();
      const record = { ...session, id, savedAt: new Date().toISOString() };
-     try { await store.setJSON(id, record); }
+-    try { await store.setJSON(id, record); }
++    try {
++      // Status lock: in-progress autosaves and the final completed record share an
++      // id (last-write-wins in Blobs). A delayed in-progress write must never
++      // downgrade a completed brief and lose its sheetUrl/handoff/full data, so
++      // refuse to overwrite a stored completed record with a non-completed one.
++      // (Read-before-write isn't atomic — Blobs has no CAS — but it closes the
++      // realistic reorder window.)
++      if (record.status !== "completed") {
++        const prev = await store.get(id, { type: "json" }).catch(() => null);
++        if (prev && prev.status === "completed") return json(200, { id, skipped: "completed_locked" });
++      }
++      await store.setJSON(id, record);
++    }
      catch (err) { console.error("Failed to save session", err); return json(502, { error: "save_failed" }); }
+     return json(200, { id });
+   }
+@@ -79,8 +104,19 @@ export default async (req) => {
+   return json(405, { error: "method_not_allowed" });
+ };
+ 
++// The record is client-POSTed, so numeric fields must be coerced (not just
++// passed through): a non-numeric value would otherwise reach the dashboard and
++// either render as an XSS sink (apiCalls) or poison the KPI math (tokens -> NaN).
++const numOrNull = (x) => (Number.isFinite(x) ? x : null);
++
+ function summarize(r) {
+   const company = (r.merged && r.merged.company) || {};
++  const status = r.status === "in_progress" ? "in_progress" : "completed"; // whitelist
++  const t = r.tokens && typeof r.tokens === "object" ? r.tokens : null;
++  const tokens = t ? { input: +t.input || 0, output: +t.output || 0, cacheRead: +t.cacheRead || 0, cacheWrite: +t.cacheWrite || 0 } : null;
++  const percent = Number.isFinite(r.percent)
++    ? Math.max(0, Math.min(100, Math.round(r.percent)))
++    : (status === "completed" ? 100 : 0);
+   return {
+     id: r.id,
+     company: company.name || "(unnamed)",
+@@ -90,9 +126,15 @@ function summarize(r) {
+     topicCount: Array.isArray(r.merged && r.merged.topics) ? r.merged.topics.length : 0,
+     channelCount: Array.isArray(r.merged && r.merged.channels) ? r.merged.channels.length : 0,
+     userCount: Array.isArray(r.users) ? r.users.length : 0,
+-    status: r.status || "completed",
+-    durationMs: r.durationMs || null,
+-    apiCalls: r.apiCalls || null,
++    status: status,
++    percent: percent,
++    durationMs: numOrNull(r.durationMs),
++    apiCalls: numOrNull(r.apiCalls),
++    tokens: tokens,
++    sheetUrl: r.sheetUrl || null,
++    hasHandoff: !!(r.handoff && typeof r.handoff === "object" && Object.keys(r.handoff).length),
++    seeded: !!r.seedId,
++    lastActiveAt: r.lastActiveAt || r.sentAt || r.savedAt || null,
+     sentAt: r.sentAt || null,
+     savedAt: r.savedAt || null,
+   };
 diff --git a/netlify/functions/sheet.js b/netlify/functions/sheet.js
 new file mode 100644
 index 0000000..748551e
@@ -2490,7 +2544,7 @@ index 0000000..44949af
 +  }
 +}
 diff --git a/public/dashboard.html b/public/dashboard.html
-index 7d6d6c7..e8efce2 100644
+index 7d6d6c7..22e043c 100644
 --- a/public/dashboard.html
 +++ b/public/dashboard.html
 @@ -3,8 +3,12 @@
@@ -2506,7 +2560,44 @@ index 7d6d6c7..e8efce2 100644
  <style>
    :root { --teal:#012B3A; --cherry:#FF4C46; --mint:#DFFFDE; --border:#e2e8f0; --muted:#5b6b76; }
    * { box-sizing:border-box; }
-@@ -56,6 +60,7 @@
+@@ -25,6 +29,27 @@
+   .muted { color:var(--muted); }
+   .empty, .err { text-align:center; padding:40px; color:var(--muted); font-size:14px; }
+   .err { color:var(--cherry); }
++  .kpis { display:grid; grid-template-columns:repeat(auto-fill, minmax(170px,1fr)); gap:10px; margin-bottom:16px; }
++  .kpi { background:#fff; border:1px solid var(--border); border-radius:10px; padding:12px 14px; }
++  .kpi .v { font-size:20px; font-weight:700; font-variant-numeric:tabular-nums; }
++  .kpi .l { font-size:10.5px; color:var(--muted); margin-top:3px; line-height:1.4; }
++  td.num { text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
++  th.num { text-align:right; }
++  .sub2 { font-size:10.5px; color:var(--muted); }
++  .chip { display:inline-block; margin-left:6px; padding:0 6px; border-radius:20px; font-size:9.5px; font-weight:700; background:#eef1f5; color:var(--muted); vertical-align:middle; }
++  .rep a { color:#0b6b3a; font-weight:700; text-decoration:underline; font-size:12px; }
++  .rep .ho { font-size:11px; color:var(--muted); }
++  .rep .none { color:var(--muted); }
++  .note { font-size:11px; color:var(--muted); margin:14px 2px 0; line-height:1.5; }
++  .filters { display:flex; gap:14px; align-items:center; margin-bottom:14px; flex-wrap:wrap; }
++  .filters label { font-size:12px; color:var(--muted); display:flex; align-items:center; gap:6px; }
++  .filters select { font-family:inherit; font-size:13px; padding:5px 8px; border:1px solid var(--border); border-radius:8px; background:#fff; color:var(--teal); cursor:pointer; }
++  .fclear { background:transparent; border:1px solid var(--border); border-radius:8px; padding:6px 12px; font-size:12px; cursor:pointer; font-family:inherit; color:var(--muted); }
++  .pill.inprog { background:#E8F1FE; color:#1d4ed8; }
++  .pill.stalled { background:#FEF3E2; color:#92400e; }
++  .tscroll { overflow-x:auto; }
++  .pbar { width:84px; height:6px; background:#eef1f4; border-radius:3px; overflow:hidden; }
++  .pbar i { display:block; height:100%; background:var(--teal); border-radius:3px; }
+   .modal { position:fixed; inset:0; background:rgba(0,0,0,.5); display:none; align-items:center; justify-content:center; padding:20px; }
+   .modal.show { display:flex; }
+   .sheet { background:#fff; border-radius:14px; max-width:640px; width:100%; max-height:86vh; overflow:auto; padding:24px; }
+@@ -47,6 +72,8 @@
+   </div>
+   <div class="wrap">
+     <h1>Client onboarding sessions</h1>
++    <div id="kpis" class="kpis" hidden></div>
++    <div id="filters" class="filters" hidden></div>
+     <div id="body"><div class="empty">Loading…</div></div>
+   </div>
+ 
+@@ -56,6 +83,7 @@
  
  <script>
    var SESSION_ENDPOINT = "/.netlify/functions/session";
@@ -2514,16 +2605,203 @@ index 7d6d6c7..e8efce2 100644
    var $ = function (id) { return document.getElementById(id); };
  
    // ---- Access token gate ----
-@@ -119,7 +124,7 @@
-         '<td>' + fmtDuration(s.durationMs) + '</td>' +
-         '<td>' + (s.apiCalls != null ? s.apiCalls : "—") + '</td>' +
-         '<td>' + s.topicCount + ' topics · ' + s.channelCount + ' channels</td>' +
+@@ -79,9 +107,9 @@
+   }
+ 
+   function fmtDuration(ms) {
++    ms = num(ms);
+     if (!ms) return "—";
+-    var m = Math.round(ms / 60000);
+-    return m + " min";
++    return Math.round(ms / 60000) + " min";
+   }
+   function fmtDate(iso) {
+     if (!iso) return "—";
+@@ -92,6 +120,51 @@
+       return { "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[c];
+     });
+   }
++  // Only allow http(s) links to render as clickable. The session record is POSTed
++  // by the client, so a tampered sheetUrl (e.g. a "javascript:" URI) must never
++  // become a live href. esc() alone doesn't stop the scheme.
++  function safeUrl(u) {
++    u = String(u == null ? "" : u).trim();
++    return /^https?:\/\//i.test(u) ? u : "";
++  }
++  // Per-MTok rates for the model the proxy runs (claude-sonnet-4-x class):
++  // input $3, output $15, cache write $3.75, cache read $0.30. Estimate only.
++  var RATES = { input: 3, output: 15, cacheWrite: 3.75, cacheRead: 0.30 };
++  // Coerce to a finite number; a non-numeric token field must never reach the
++  // math (|| 0 lets a truthy string through and yields NaN tiles).
++  function num(x) { x = +x; return Number.isFinite(x) ? x : 0; }
++  function costOf(t) {
++    if (!t) return null;
++    return (num(t.input) * RATES.input + num(t.output) * RATES.output +
++      num(t.cacheWrite) * RATES.cacheWrite + num(t.cacheRead) * RATES.cacheRead) / 1e6;
++  }
++  function totalTokens(t) {
++    if (!t) return null;
++    return num(t.input) + num(t.output) + num(t.cacheWrite) + num(t.cacheRead);
++  }
++  var STALE_MS = 48 * 3600 * 1000; // in-progress + idle past this reads as "stalled"
++  function displayStatus(s) {
++    if (s.status === "completed") return "completed";
++    var la = s.lastActiveAt ? Date.parse(s.lastActiveAt) : NaN;
++    if (isFinite(la) && (Date.now() - la) > STALE_MS) return "stalled";
++    return "in_progress";
++  }
++  var STATUS_META = {
++    completed:   { l: "Completed",   c: "completed" },
++    in_progress: { l: "In progress", c: "inprog" },
++    stalled:     { l: "Stalled",     c: "stalled" },
++  };
++  function fmtCost(c) { return c == null ? "—" : "$" + c.toFixed(2); }
++  function fmtTokens(n) {
++    if (n == null) return "—";
++    return n >= 1000 ? Math.round(n / 1000) + "k" : String(n);
++  }
++  function median(nums) {
++    var a = nums.filter(function (n) { return n != null; }).sort(function (x, y) { return x - y; });
++    if (!a.length) return null;
++    var mid = Math.floor(a.length / 2);
++    return a.length % 2 ? a[mid] : (a[mid - 1] + a[mid]) / 2;
++  }
+ 
+   function load() {
+     if (!getToken() && !askToken()) { $("body").innerHTML = '<div class="err">Access token required.</div>'; return; }
+@@ -100,34 +173,113 @@
+       .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+       .then(function (data) { render(data.sessions || []); })
+       .catch(function (e) {
++        $("kpis").hidden = true; $("filters").hidden = true;
+         $("body").innerHTML = '<div class="err">Could not load sessions (' + esc(e.message) + '). Check the session function is deployed.</div>';
+         $("count").textContent = "";
+       });
+   }
+ 
++  var SESSIONS = [];
++  var FILTER = { status: "all", minPct: 0 };
++
++  function renderKpis(sessions) {
++    var box = $("kpis");
++    var total = sessions.length;
++    var completed = sessions.filter(function (s) { return s.status === "completed"; });
++    var compN = completed.length;
++    var rate = total ? Math.round(compN / total * 100) : 0;
++    // Median + time-saved are over completed briefs that have a known duration,
++    // so records with no timing neither move the median nor inflate the saving.
++    var durs = completed.map(function (s) { return s.durationMs; }).filter(function (n) { return n != null; });
++    var medMs = median(durs);
++    var medMin = medMs != null ? Math.round(medMs / 60000) : null;
++    var savedH = medMin != null ? (durs.length * Math.max(0, 90 - medMin)) / 60 : null;
++    var costs = completed.map(function (s) { return costOf(s.tokens); }).filter(function (c) { return c != null; });
++    var totalCost = costs.length ? costs.reduce(function (a, b) { return a + b; }, 0) : null;
++    var perBrief = (totalCost != null && costs.length) ? totalCost / costs.length : null;
++    var kpis = [
++      [String(total), total === 1 ? "session" : "sessions"],
++      [compN + (total ? " (" + rate + "%)" : ""), "completed"],
++      [medMin != null ? medMin + " min" : "—", "median time, start to submit"],
++      [savedH != null ? savedH.toFixed(1) + " h" : "—", "est. time saved (vs 90 min manual)"],
++      [fmtCost(totalCost), "est. AI spend" + (perBrief != null ? " · " + fmtCost(perBrief) + "/brief" : "")],
++    ];
++    box.innerHTML = kpis.map(function (k) {
++      return '<div class="kpi"><div class="v">' + esc(k[0]) + '</div><div class="l">' + esc(k[1]) + '</div></div>';
++    }).join("");
++    box.hidden = false;
++  }
++
++  function renderFilters() {
++    var statusOpts = [["all", "All statuses"], ["completed", "Completed"], ["in_progress", "In progress"], ["stalled", "Stalled"]];
++    var pctOpts = [["0", "Any progress"], ["25", "25% or more"], ["50", "50% or more"], ["75", "75% or more"], ["100", "100% progress"]];
++    function sel(id, opts, cur) {
++      return '<label>' + (id === "fStatus" ? "Status" : "Progress") + ' <select id="' + id + '">' +
++        opts.map(function (o) { return '<option value="' + o[0] + '"' + (String(cur) === o[0] ? " selected" : "") + '>' + esc(o[1]) + '</option>'; }).join("") +
++        '</select></label>';
++    }
++    var box = $("filters");
++    box.innerHTML = sel("fStatus", statusOpts, FILTER.status) + sel("fPct", pctOpts, FILTER.minPct) +
++      '<button type="button" id="fClear" class="fclear">Clear</button>';
++    box.hidden = false;
++    $("fStatus").addEventListener("change", function (e) { FILTER.status = e.target.value; renderTable(); });
++    $("fPct").addEventListener("change", function (e) { FILTER.minPct = parseInt(e.target.value, 10) || 0; renderTable(); });
++    $("fClear").addEventListener("click", function () { FILTER = { status: "all", minPct: 0 }; renderFilters(); renderTable(); });
++  }
++
++  function rowHtml(s) {
++    var ds = displayStatus(s), meta = STATUS_META[ds] || STATUS_META.in_progress;
++    var pct = s.percent != null ? s.percent : 0;
++    var url = safeUrl(s.sheetUrl);
++    var rep = url
++      ? '<a href="' + esc(url) + '" target="_blank" rel="noopener noreferrer" data-link="1">Open Sheet ⤓</a>' + (s.hasHandoff ? '<div class="ho">+ handoff</div>' : "")
++      : (s.hasHandoff ? '<span class="ho">Handoff ready</span>' : '<span class="none">—</span>');
++    var tok = totalTokens(s.tokens);
++    return '<tr class="row" data-id="' + esc(s.id) + '">' +
++      '<td><strong>' + esc(s.company) + '</strong>' + (s.seeded ? '<span class="chip">seeded</span>' : "") +
++        '<div class="muted">' + esc(s.contact || s.email || "") + '</div></td>' +
++      '<td><span class="pill ' + meta.c + '">' + esc(meta.l) + '</span></td>' +
++      '<td><div class="pbar"><i style="width:' + pct + '%"></i></div><div class="sub2">' + pct + '%</div></td>' +
++      '<td>' + s.topicCount + ' topics · ' + s.channelCount + ' channels · ' + (s.userCount != null ? s.userCount : 0) + ' users</td>' +
++      '<td>' + fmtDuration(s.durationMs) + '</td>' +
++      '<td class="num">' + fmtTokens(tok) + '<div class="sub2">' + fmtCost(costOf(s.tokens)) + (typeof s.apiCalls === "number" ? ' · ' + s.apiCalls + ' calls' : "") + '</div></td>' +
++      '<td class="muted">' + esc(fmtDate(s.lastActiveAt || s.sentAt || s.savedAt)) + '</td>' +
++      '<td class="rep">' + rep + '</td>' +
++    '</tr>';
++  }
++
++  function renderTable() {
++    var list = SESSIONS.filter(function (s) {
++      if (FILTER.status !== "all" && displayStatus(s) !== FILTER.status) return false;
++      if (FILTER.minPct > 0 && (s.percent != null ? s.percent : 0) < FILTER.minPct) return false;
++      return true;
++    });
++    var head = '<table><thead><tr><th>Client</th><th>Status</th><th>Progress</th><th>Captured</th>' +
++      '<th>Time</th><th class="num">Tokens / cost</th><th>Last active</th><th>Report</th></tr></thead><tbody>';
++    var bodyRows = list.length ? list.map(rowHtml).join("")
++      : '<tr><td colspan="8" class="empty" style="padding:24px">No sessions match this filter.</td></tr>';
++    $("body").innerHTML =
++      '<div class="tscroll">' + head + bodyRows + '</tbody></table></div>' +
++      '<div class="note">A session is stored from the client\'s first real answer (marked in progress) and updated as they go; the completed record replaces it on send. "Stalled" = in progress with no activity for 48h. AI cost is an estimate from per-call token metering at $' + RATES.input + '/$' + RATES.output + ' per MTok in/out (plus cache rates).</div>';
++    Array.prototype.forEach.call(document.querySelectorAll("tr.row"), function (tr) {
++      tr.addEventListener("click", function (e) {
++        if (e.target.closest && e.target.closest('a[data-link]')) return; // let the Sheet link open on its own
++        openSession(tr.getAttribute("data-id"));
++      });
++    });
++  }
++
+   function render(sessions) {
++    SESSIONS = sessions;
+     $("count").textContent = sessions.length + (sessions.length === 1 ? " session" : " sessions");
+     if (!sessions.length) {
+-      $("body").innerHTML = '<div class="empty">No completed onboarding sessions yet.</div>';
++      $("kpis").hidden = true; $("filters").hidden = true;
++      $("body").innerHTML = '<div class="empty">No onboarding sessions yet.</div>';
+       return;
+     }
+-    var rows = sessions.map(function (s) {
+-      var pillClass = s.status === "completed" ? "completed" : "other";
+-      return '<tr class="row" data-id="' + esc(s.id) + '">' +
+-        '<td><strong>' + esc(s.company) + '</strong><div class="muted">' + esc(s.contact || "") + '</div></td>' +
+-        '<td><span class="pill ' + pillClass + '">' + esc(s.status) + '</span></td>' +
+-        '<td>' + fmtDuration(s.durationMs) + '</td>' +
+-        '<td>' + (s.apiCalls != null ? s.apiCalls : "—") + '</td>' +
+-        '<td>' + s.topicCount + ' topics · ' + s.channelCount + ' channels</td>' +
 -        '<td class="muted">' + fmtDate(s.sentAt || s.savedAt) + '</td>' +
-+        '<td class="muted">' + esc(fmtDate(s.sentAt || s.savedAt)) + '</td>' +
-       '</tr>';
-     }).join("");
-     $("body").innerHTML =
-@@ -135,10 +140,24 @@
+-      '</tr>';
+-    }).join("");
+-    $("body").innerHTML =
+-      '<table><thead><tr><th>Client</th><th>Status</th><th>Time</th><th>AI calls</th><th>Captured</th><th>Submitted</th></tr></thead>' +
+-      '<tbody>' + rows + '</tbody></table>';
+-    Array.prototype.forEach.call(document.querySelectorAll("tr.row"), function (tr) {
+-      tr.addEventListener("click", function () { openSession(tr.getAttribute("data-id")); });
+-    });
++    renderKpis(sessions);
++    renderFilters();
++    renderTable();
+   }
+ 
+   function openSession(id) {
+@@ -135,15 +287,29 @@
      $("modal").classList.add("show");
      authedFetch(SESSION_ENDPOINT + "?id=" + encodeURIComponent(id))
        .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
@@ -2548,12 +2826,21 @@ index 7d6d6c7..e8efce2 100644
 +
    function renderSheet(s) {
      var c = (s.merged && s.merged.company) || {};
-     var topics = (s.merged && s.merged.topics) || [];
-@@ -180,6 +199,20 @@
+-    var topics = (s.merged && s.merged.topics) || [];
+-    var channels = (s.merged && s.merged.channels) || [];
+-    var users = s.users || [];
++    var topics = (s.merged && Array.isArray(s.merged.topics)) ? s.merged.topics : [];
++    var channels = (s.merged && Array.isArray(s.merged.channels)) ? s.merged.channels : [];
++    var users = Array.isArray(s.users) ? s.users : [];
+     var html = '<button class="close" id="close">Close</button>' +
+       '<h2>' + esc(c.name || "(unnamed)") + '</h2>' +
+       '<div class="sub">' + esc(c.contact || "") + (c.email ? " · " + esc(c.email) : "") + '</div>' +
+@@ -180,6 +346,21 @@
        html += '<div class="sec">Migrated queries</div><div class="list"><div style="white-space:pre-wrap;font-family:monospace;font-size:12px">' + esc(s.queries) + '</div></div>';
      }
  
-+    if (s.sheetUrl) html += '<div class="sec">Editable Google Sheet</div><div class="list"><div><a href="' + esc(s.sheetUrl) + '" target="_blank" rel="noopener noreferrer">Open the client\'s brief in Google Sheets</a></div></div>';
++    var sUrl = safeUrl(s.sheetUrl);
++    if (sUrl) html += '<div class="sec">Editable Google Sheet</div><div class="list"><div><a href="' + esc(sUrl) + '" target="_blank" rel="noopener noreferrer">Open the client\'s brief in Google Sheets</a></div></div>';
 +
 +    var h = s.handoff;
 +    if (h) {
@@ -2639,7 +2926,7 @@ index c01a95e..bd56c8a 100644
  
    function fillExample() {
 diff --git a/src/lumen.jsx b/src/lumen.jsx
-index a326b55..53a37a5 100644
+index a326b55..dc1a2bc 100644
 --- a/src/lumen.jsx
 +++ b/src/lumen.jsx
 @@ -6,19 +6,35 @@ import * as XLSX from "xlsx";
@@ -3332,7 +3619,7 @@ index a326b55..53a37a5 100644
    const startedAtRef = useRef(null);
    const saveT   = useRef(null);
    const wRef    = useRef(wState);
-@@ -991,9 +1028,22 @@ function OnboardingApp({ seed, onBriefSent, onSeeProserv }) {
+@@ -991,9 +1028,49 @@ function OnboardingApp({ seed, onBriefSent, onSeeProserv }) {
    useEffect(() => { botRef.current?.scrollIntoView({behavior:"smooth"}); }, [messages, loading]);
    useEffect(() => { if (progress.percent===100&&prevPct.current<100&&sndRef.current) chime(); prevPct.current=progress.percent; }, [progress.percent, chime]);
  
@@ -3345,19 +3632,46 @@ index a326b55..53a37a5 100644
 +  }, []);
  
 -  // demo: auto-save to the session store is simulated
-+  // Autosave the in-progress draft (debounced) after each turn, until sent.
++  // Autosave the in-progress draft after each turn, until sent. Two sinks:
++  //  - localStorage: the full draft (messages/history) for resume on this device.
++  //  - server (from the first real answer on): a TRIMMED snapshot — structured
++  //    progress only, no messages/history — so Proserv sees live and stalled
++  //    sessions, not just completed ones. Keyed by session id, marked
++  //    in_progress; the completed record overwrites it on send (same id).
 +  useEffect(() => {
 +    if (!started || sent || messages.length === 0) return;
 +    if (saveT.current) clearTimeout(saveT.current);
 +    saveT.current = setTimeout(() => {
 +      lsSaveDraft(seedId, { messages, progress, wState, cdata, history: histRef.current, uiLang, sid: sidRef.current, startedAt: startedAtRef.current, savedAt: Date.now() });
++      // Server upsert. Best-effort, never blocks the chat. Skipped while a send is
++      // in flight so a late autosave can't overwrite the completed record.
++      const pct = (progress && progress.percent) || 0;
++      const hasRealAnswer = !!(cdata.company && cdata.company.name) || pct > 0;
++      if (hasRealAnswer && !sendingRef.current) {
++        const usersW = gwp("USERS");
++        const inProgress = {
++          id: sidRef.current,
++          status: "in_progress",
++          percent: pct,
++          merged: { company: cdata.company || {}, topics: cdata.topics || [], channels: cdata.channels || [], reports: cdata.reports || [], alerts: cdata.alerts || [], queries: gwp("QUERIES") || "" },
++          users: Array.isArray(usersW) ? usersW : [],
++          handoff: cdata.handoff || null,
++          seedId: seedId || null,
++          seed: seed || null,
++          durationMs: startedAtRef.current ? (Date.now() - startedAtRef.current) : null,
++          apiCalls: apiCountRef.current,
++          tokens: { ...usageRef.current },
++          lastActiveAt: new Date().toISOString(),
++        };
++        fetchWithTimeout(SESSION_ENDPOINT, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ session: inProgress }) }, 15000).catch(() => {});
++      }
 +    }, 600);
 +    return () => { if (saveT.current) clearTimeout(saveT.current); };
-+  }, [messages, progress, wState, cdata, started, sent, uiLang, seedId]);
++  }, [messages, progress, wState, cdata, started, sent, uiLang, seedId, seed]);
  
    const resetSession = useCallback(() => {
      sidRef.current = crypto.randomUUID();
-@@ -1002,6 +1052,7 @@ function OnboardingApp({ seed, onBriefSent, onSeeProserv }) {
+@@ -1002,6 +1079,7 @@ function OnboardingApp({ seed, onBriefSent, onSeeProserv }) {
      setWState({}); setCdata(emptyCdata());
      setSaved(null); setRetryMsg(null); histRef.current = [];
      prevSecRef.current = null; prevPct.current = 0;
@@ -3365,7 +3679,7 @@ index a326b55..53a37a5 100644
    }, []);
  
    const loadTestSession = useCallback(() => {
-@@ -1101,13 +1152,20 @@ function OnboardingApp({ seed, onBriefSent, onSeeProserv }) {
+@@ -1101,13 +1179,20 @@ function OnboardingApp({ seed, onBriefSent, onSeeProserv }) {
      apiCountRef.current += 1;
      // The system prompt lives server-side in the chat function; the client only
      // flags whether the OVERSTATE correction pass is needed.
@@ -3388,7 +3702,7 @@ index a326b55..53a37a5 100644
      return (d.content||[]).map(b=>b.text||"").join("");
    }, []);
  
-@@ -1143,18 +1201,6 @@ function OnboardingApp({ seed, onBriefSent, onSeeProserv }) {
+@@ -1143,18 +1228,6 @@ function OnboardingApp({ seed, onBriefSent, onSeeProserv }) {
    const callClientAPI = useCallback(async (systemPrompt, hist) => {
      throw new Error("simulate_unavailable_in_live_build");
    }, []);
@@ -3407,7 +3721,7 @@ index a326b55..53a37a5 100644
  
    const inferPct = useCallback(() => {
      const sub = t => Object.entries(wRef.current).some(([k,v])=>k.endsWith(`-${t}`)&&(v===true||v?.submitted));
-@@ -1169,7 +1215,10 @@ function OnboardingApp({ seed, onBriefSent, onSeeProserv }) {
+@@ -1169,7 +1242,10 @@ function OnboardingApp({ seed, onBriefSent, onSeeProserv }) {
      setCdata(p => mergeCdata(p, pr));
    }, []);
  
@@ -3419,7 +3733,7 @@ index a326b55..53a37a5 100644
      // Ensure exactly one trailing user turn for this call. On a fresh send we
      // push it; on retry it's still there from the prior attempt. Either way, if
      // the call fails we pop it back off so a subsequent message can't leave two
-@@ -1193,7 +1242,7 @@ function OnboardingApp({ seed, onBriefSent, onSeeProserv }) {
+@@ -1193,7 +1269,7 @@ function OnboardingApp({ seed, onBriefSent, onSeeProserv }) {
        if (prog) setProgress(prog);
        else setProgress(p=>({...p,percent:Math.max(p.percent,inferPct())}));
        applyCdata(pr);
@@ -3428,7 +3742,7 @@ index a326b55..53a37a5 100644
        if (sndRef.current) pop();
        const dv = maybeDivider(prog);
        setMessages(p=>[...p,...(dv?[dv]:[]),{role:"assistant",content:clean,widgets,topicSuggestions,quickReplies,timestamp:gts(),raw}]);
-@@ -1206,42 +1255,93 @@ function OnboardingApp({ seed, onBriefSent, onSeeProserv }) {
+@@ -1206,42 +1282,94 @@ function OnboardingApp({ seed, onBriefSent, onSeeProserv }) {
    }, [callAPI, pop, inferPct, applyCdata]);
  
    const handleSend = useCallback(async (merged, users) => {
@@ -3437,6 +3751,7 @@ index a326b55..53a37a5 100644
 +    // two Sheets, or two Slack alerts from one impatient double-tap.
 +    if (sendingRef.current) return;
 +    sendingRef.current = true;
++    if (saveT.current) clearTimeout(saveT.current); // cancel any pending in-progress autosave so it can't land after the completed record
      setSending(true); setSendErr(null);
 -    const { filename } = buildWorkbook(XLSX, merged, users || []);
 -    const sentAt = new Date();
@@ -3554,7 +3869,7 @@ index a326b55..53a37a5 100644
  
    const maybeDivider = useCallback(prog => {
      const sec = prog?.section;
-@@ -1364,12 +1464,12 @@ function OnboardingApp({ seed, onBriefSent, onSeeProserv }) {
+@@ -1364,12 +1492,12 @@ function OnboardingApp({ seed, onBriefSent, onSeeProserv }) {
        setCdata(p=>({...p, company:{name:sd.company||"", email:sd.email||"", industry:sd.industry||"", useCase:"", contact:sd.contactName||""}}));
      }
      if (msgRef.current) msgRef.current.scrollTop = 0;
@@ -3569,7 +3884,7 @@ index a326b55..53a37a5 100644
      prevSecRef.current = prog?.section || "company";
      setMessages([{role:"assistant",content:clean,widgets,topicSuggestions,quickReplies,timestamp:gts(),raw}]);
      setLoading(false);
-@@ -1378,6 +1478,9 @@ function OnboardingApp({ seed, onBriefSent, onSeeProserv }) {
+@@ -1378,6 +1506,9 @@ function OnboardingApp({ seed, onBriefSent, onSeeProserv }) {
    const resumeConvo = useCallback(async () => {
      init(); if (!saved) return;
      setStarted(true); setLoading(true); setSaved(null);
@@ -3579,7 +3894,7 @@ index a326b55..53a37a5 100644
      setMessages(saved.messages); setProgress(saved.progress); setWState(saved.wState||{});
      prevSecRef.current = saved.progress?.section || null;
      if (saved.cdata) setCdata(saved.cdata);
-@@ -1386,7 +1489,7 @@ function OnboardingApp({ seed, onBriefSent, onSeeProserv }) {
+@@ -1386,7 +1517,7 @@ function OnboardingApp({ seed, onBriefSent, onSeeProserv }) {
      const raw = await callAPILive(histRef.current);
      const { clean,widgets,topicSuggestions,quickReplies,progress:prog } = parseReply(raw);
      if (prog) setProgress(prog);
@@ -3588,7 +3903,7 @@ index a326b55..53a37a5 100644
      if (sndRef.current) pop();
      const dv = maybeDivider(prog);
      setMessages(p=>[...p,...(dv?[dv]:[]),{role:"assistant",content:clean,widgets,topicSuggestions,quickReplies,timestamp:gts(),raw}]);
-@@ -1433,20 +1536,20 @@ function OnboardingApp({ seed, onBriefSent, onSeeProserv }) {
+@@ -1433,20 +1564,20 @@ function OnboardingApp({ seed, onBriefSent, onSeeProserv }) {
        lastName:(cdata.company.contact||"").split(" ").slice(1).join(" "),
        email:cdata.company.email, role:"", access:"Admin"
      }] : []);
@@ -3619,7 +3934,7 @@ index a326b55..53a37a5 100644
  
    if (!checked) return <div style={{height:"100vh",display:"flex",alignItems:"center",justifyContent:"center"}}>Loading…</div>;
  
-@@ -1454,7 +1557,7 @@ function OnboardingApp({ seed, onBriefSent, onSeeProserv }) {
+@@ -1454,7 +1585,7 @@ function OnboardingApp({ seed, onBriefSent, onSeeProserv }) {
    const last = messages[messages.length-1], showQR = last?.role==="assistant"&&last?.quickReplies?.length>0&&!loading;
    const done = progress.percent === 100;
  
@@ -3628,7 +3943,7 @@ index a326b55..53a37a5 100644
    const fmtV = v => { if (v==null||v===""||(Array.isArray(v)&&!v.length)) return null; if (v==="__skip__") return "Skipped"; return Array.isArray(v)?v.join(", "):String(v); };
    const topicsList = (cdata.topics?.length?cdata.topics:Array.isArray(gwp("TOPICS"))?gwp("TOPICS"):[]);
    const usersList  = Array.isArray(gwp("USERS"))?gwp("USERS"):[];
-@@ -1497,7 +1600,7 @@ function OnboardingApp({ seed, onBriefSent, onSeeProserv }) {
+@@ -1497,7 +1628,7 @@ function OnboardingApp({ seed, onBriefSent, onSeeProserv }) {
          </div>
        </div>}
  
@@ -3637,7 +3952,7 @@ index a326b55..53a37a5 100644
  
        {showPanel && started && <div style={{position:"fixed",top:56,right:0,bottom:0,width:mob?"100%":320,background:C.card,borderLeft:`1px solid ${C.border}`,zIndex:500,overflowY:"auto",padding:"16px 18px",boxShadow:sideCol?"none":"-4px 0 16px rgba(0,0,0,0.08)"}}>
          <div style={{fontSize:11,color:C.muted,margin:"0 0 12px",lineHeight:1.5,background:C.hi,borderRadius:8,padding:"8px 10px"}}>{L("correctionHint", uiLang)}</div>
-@@ -1548,7 +1651,7 @@ function OnboardingApp({ seed, onBriefSent, onSeeProserv }) {
+@@ -1548,7 +1679,7 @@ function OnboardingApp({ seed, onBriefSent, onSeeProserv }) {
        {started && <div style={{background:C.card,borderBottom:`1px solid ${C.border}`,padding:"14px 24px",flexShrink:0}}>
          <div style={{maxWidth:640,margin:"0 auto",display:"flex",alignItems:"flex-end",gap:16}}>
            <div style={{flex:1}}><Stepper progress={progress} dark={dark} compact={mob}/></div>
@@ -3646,12 +3961,12 @@ index a326b55..53a37a5 100644
          </div>
        </div>}
  
-@@ -1597,12 +1700,12 @@ function OnboardingApp({ seed, onBriefSent, onSeeProserv }) {
+@@ -1597,12 +1728,12 @@ function OnboardingApp({ seed, onBriefSent, onSeeProserv }) {
              <p style={{color:P,fontSize:13,fontWeight:600,margin:"0 0 24px"}}>{saved?.progress?.percent||0}% complete</p>
              <div style={{display:"flex",gap:12}}>
                <button onClick={resumeConvo} style={{background:P,color:"white",border:"none",borderRadius:10,padding:"13px 28px",cursor:"pointer",fontWeight:600}}>Resume session</button>
 -              <button onClick={resetSession} style={{background:"transparent",border:`1px solid ${C.border}`,color:C.muted,borderRadius:10,padding:"13px 28px",cursor:"pointer"}}>Start fresh</button>
-+              <button onClick={()=>{lsClearDraft(seedId);resetSession();}} style={{background:"transparent",border:`1px solid ${C.border}`,color:C.muted,borderRadius:10,padding:"13px 28px",cursor:"pointer"}}>Start fresh</button>
++              <button onClick={()=>{const keep=sidRef.current;lsClearDraft(seedId);resetSession();sidRef.current=keep;}} style={{background:"transparent",border:`1px solid ${C.border}`,color:C.muted,borderRadius:10,padding:"13px 28px",cursor:"pointer"}}>Start fresh</button>
              </div>
            </div>
          )}
@@ -3661,7 +3976,7 @@ index a326b55..53a37a5 100644
            <div style={{height:1,width:20,background:C.border}}/>
            <button onClick={()=>setCollapsed(false)} style={{background:"transparent",border:"none",padding:0,fontSize:12,color:C.muted,cursor:"pointer",textDecoration:"underline"}}>Show {messages.length-SHOW} earlier messages</button>
          </div>}
-@@ -1616,7 +1719,7 @@ function OnboardingApp({ seed, onBriefSent, onSeeProserv }) {
+@@ -1616,7 +1747,7 @@ function OnboardingApp({ seed, onBriefSent, onSeeProserv }) {
              <div style={{flex:1,height:1,background:C.border}}/>
            </div>;
            return <div key={i} style={{display:"flex",justifyContent:m.role==="user"?"flex-end":"flex-start",marginBottom:18,animation:m.role==="assistant"?"slideUpFade 0.4s ease-out forwards":"none"}}>
@@ -3670,7 +3985,7 @@ index a326b55..53a37a5 100644
              <div style={{maxWidth:m.role==="assistant"?"min(88%, 580px)":"78%"}}>
                {m.content && <div>
                  <div style={{background:m.role==="user"?(m.isWidget?C.hi:C.uBg):(dark?C.card:"#F5F3FB"),border:`1px solid ${m.role==="user"?(m.isWidget?P:C.border):(dark?C.border:"#E5E0F3")}`,color:m.role==="user"?(m.isWidget?C.wTx:C.uTx):C.text,borderRadius:14,padding:"11px 15px",fontSize:14,lineHeight:1.7,boxShadow:m.role==="assistant"?"0 1px 3px rgba(1,43,58,0.06)":"none"}}>
-@@ -1641,20 +1744,20 @@ function OnboardingApp({ seed, onBriefSent, onSeeProserv }) {
+@@ -1641,20 +1772,20 @@ function OnboardingApp({ seed, onBriefSent, onSeeProserv }) {
            </div>;
          })}
  
@@ -3695,7 +4010,7 @@ index a326b55..53a37a5 100644
              <button onClick={()=>sendToAPI(retryMsg,true)} style={{background:P,color:"white",border:"none",borderRadius:7,padding:"6px 14px",fontSize:12,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>Try again</button>
            </div>
          </div>}
-@@ -1678,6 +1781,9 @@ function OnboardingApp({ seed, onBriefSent, onSeeProserv }) {
+@@ -1678,6 +1809,9 @@ function OnboardingApp({ seed, onBriefSent, onSeeProserv }) {
                {loading?<Spinner/>:<span style={{fontSize:18}}>↑</span>}
              </button>
            </div>
@@ -3705,7 +4020,7 @@ index a326b55..53a37a5 100644
          </div>
        </div>}
      </div>
-@@ -2085,16 +2191,23 @@ export default function Demo() {
+@@ -2085,16 +2219,23 @@ export default function Demo() {
  }
  
  // ================= LIVE CLIENT CHAT ENTRY =================
