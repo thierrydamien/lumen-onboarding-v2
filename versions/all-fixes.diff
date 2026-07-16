@@ -110,10 +110,10 @@ index ca56bb7..fc769eb 100644
    store error, check the package version against current Netlify docs.
 diff --git a/apps-script/onboarding-sheet-webapp.gs b/apps-script/onboarding-sheet-webapp.gs
 new file mode 100644
-index 0000000..f7d6db5
+index 0000000..71accb1
 --- /dev/null
 +++ b/apps-script/onboarding-sheet-webapp.gs
-@@ -0,0 +1,266 @@
+@@ -0,0 +1,281 @@
 +/**
 + * Lumen onboarding -> Google Sheet (Apps Script Web App).
 + *
@@ -128,6 +128,9 @@ index 0000000..f7d6db5
 + *        SHARED_SECRET   = <a long random string>   (same value in Netlify APPS_SCRIPT_SECRET)
 + *        SLACK_BOT_TOKEN = <your xoxb- token>        (optional; enables the completion alert)
 + *        SLACK_CHANNEL   = <channel id>              (optional; defaults below)
++ *        DASHBOARD_URL   = https://<site>/dashboard  (optional; adds a "View full
++ *                          session" deep-link to the Slack alert, e.g.
++ *                          https://onboarding.hootsuite.com/dashboard)
 + *   3. Deploy > New deployment > type Web app. Execute as: Me. Who has access:
 + *      Anyone. Copy the /exec URL into Netlify env APPS_SCRIPT_WEBAPP_URL.
 + *
@@ -343,11 +346,23 @@ index 0000000..f7d6db5
 +  if (body.preparedBy) context.push("Link prepared by " + slackEsc_(body.preparedBy));
 +  if (email) context.push("Client has edit access to the Sheet until the review call");
 +
++  // Deep-link to the client's session detail in the Proserv dashboard (full
++  // brief + handoff + notes). Needs the DASHBOARD_URL Script Property and the
++  // sessionId the client passes through; omitted if either is missing. The
++  // dashboard is token-gated, so the link opens but still asks for the token.
++  const dashUrl = props.getProperty("DASHBOARD_URL");
++  const sessionLink = (dashUrl && body.sessionId)
++    ? dashUrl + (dashUrl.indexOf("?") === -1 ? "?" : "&") + "id=" + encodeURIComponent(body.sessionId)
++    : "";
++  const links = [];
++  if (url) links.push("<" + url + "|:page_facing_up: Open the requirements document>");
++  if (sessionLink) links.push("<" + sessionLink + "|:mag: View full session>");
++
 +  const blocks = [
 +    { type: "section", text: { type: "mrkdwn", text: ":white_check_mark: *Lumen onboarding completed* — a requirements document was created." } },
 +    { type: "section", fields: fields.slice(0, 10) },
 +  ];
-+  if (url) blocks.push({ type: "section", text: { type: "mrkdwn", text: "<" + url + "|:page_facing_up: Open the requirements document>" } });
++  if (links.length) blocks.push({ type: "section", text: { type: "mrkdwn", text: links.join("   ·   ") } });
 +  if (context.length) blocks.push({ type: "context", elements: [{ type: "mrkdwn", text: context.join("   ·   ") }] });
 +
 +  // Plain-text fallback for notifications / accessibility (required by Slack).
@@ -596,7 +611,7 @@ index 54e6cb7..059c4c9 100644
    };
 diff --git a/netlify/functions/sheet.js b/netlify/functions/sheet.js
 new file mode 100644
-index 0000000..748551e
+index 0000000..d3f3d13
 --- /dev/null
 +++ b/netlify/functions/sheet.js
 @@ -0,0 +1,183 @@
@@ -708,7 +723,7 @@ index 0000000..748551e
 +  try { body = JSON.parse(rawBody); }
 +  catch { return json(400, { error: "bad_json" }); }
 +
-+  const { xlsxBase64, brief, filename, clientEmail, company, contactName, topicsCount, usersCount } = body || {};
++  const { xlsxBase64, brief, filename, clientEmail, company, contactName, topicsCount, usersCount, sessionId } = body || {};
 +  const name = (typeof filename === "string" && filename) || `Lumen Setup Brief${company ? " - " + company : ""}`;
 +
 +  // Path D (preferred when set): hand off to an Apps Script Web App that runs as a
@@ -721,7 +736,7 @@ index 0000000..748551e
 +    try {
 +      const r = await fetch(appsUrl, {
 +        method: "POST", headers: { "Content-Type": "application/json" },
-+        body: JSON.stringify({ secret: process.env.APPS_SCRIPT_SECRET || "", brief, filename: name, clientEmail: clientEmail || "", company: company || "", contactName: contactName || "", topicsCount, usersCount }),
++        body: JSON.stringify({ secret: process.env.APPS_SCRIPT_SECRET || "", brief, filename: name, clientEmail: clientEmail || "", company: company || "", contactName: contactName || "", topicsCount, usersCount, sessionId: sessionId || "" }),
 +      });
 +      const d = await r.json().catch(() => ({}));
 +      if (!r.ok || !d.url) {
@@ -2582,7 +2597,7 @@ index 0000000..44949af
 +  }
 +}
 diff --git a/public/dashboard.html b/public/dashboard.html
-index 7d6d6c7..22e043c 100644
+index 7d6d6c7..37cb8c6 100644
 --- a/public/dashboard.html
 +++ b/public/dashboard.html
 @@ -3,8 +3,12 @@
@@ -2655,7 +2670,7 @@ index 7d6d6c7..22e043c 100644
    }
    function fmtDate(iso) {
      if (!iso) return "—";
-@@ -92,6 +120,51 @@
+@@ -92,42 +120,172 @@
        return { "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[c];
      });
    }
@@ -2707,9 +2722,17 @@ index 7d6d6c7..22e043c 100644
  
    function load() {
      if (!getToken() && !askToken()) { $("body").innerHTML = '<div class="err">Access token required.</div>'; return; }
-@@ -100,34 +173,113 @@
+     $("body").innerHTML = '<div class="empty">Loading…</div>';
+     authedFetch(SESSION_ENDPOINT)
        .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
-       .then(function (data) { render(data.sessions || []); })
+-      .then(function (data) { render(data.sessions || []); })
++      .then(function (data) {
++        render(data.sessions || []);
++        // Deep link from the Slack "View full session" link: ?id=<sessionId> opens
++        // that session's detail straight away (independent of the list).
++        var deepId = new URLSearchParams(location.search).get("id");
++        if (deepId) openSession(deepId);
++      })
        .catch(function (e) {
 +        $("kpis").hidden = true; $("filters").hidden = true;
          $("body").innerHTML = '<div class="err">Could not load sessions (' + esc(e.message) + '). Check the session function is deployed.</div>';
@@ -2839,7 +2862,7 @@ index 7d6d6c7..22e043c 100644
    }
  
    function openSession(id) {
-@@ -135,15 +287,29 @@
+@@ -135,15 +293,29 @@
      $("modal").classList.add("show");
      authedFetch(SESSION_ENDPOINT + "?id=" + encodeURIComponent(id))
        .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
@@ -2873,7 +2896,7 @@ index 7d6d6c7..22e043c 100644
      var html = '<button class="close" id="close">Close</button>' +
        '<h2>' + esc(c.name || "(unnamed)") + '</h2>' +
        '<div class="sub">' + esc(c.contact || "") + (c.email ? " · " + esc(c.email) : "") + '</div>' +
-@@ -180,6 +346,21 @@
+@@ -180,6 +352,21 @@
        html += '<div class="sec">Migrated queries</div><div class="list"><div style="white-space:pre-wrap;font-family:monospace;font-size:12px">' + esc(s.queries) + '</div></div>';
      }
  
@@ -2964,7 +2987,7 @@ index c01a95e..bd56c8a 100644
  
    function fillExample() {
 diff --git a/src/lumen.jsx b/src/lumen.jsx
-index a326b55..dc1a2bc 100644
+index a326b55..817d9a4 100644
 --- a/src/lumen.jsx
 +++ b/src/lumen.jsx
 @@ -6,19 +6,35 @@ import * as XLSX from "xlsx";
@@ -3821,7 +3844,7 @@ index a326b55..dc1a2bc 100644
 +        const xlsxBase64 = XLSX.write(wb, { type: "base64", bookType: "xlsx" });
 +        const sres = await fetchWithTimeout(SHEET_ENDPOINT, {
 +          method: "POST", headers: { "Content-Type": "application/json" },
-+          body: JSON.stringify({ xlsxBase64, brief: { ...merged, company: { ...merged.company, onboardingLanguage: uiLang }, users: users || [] }, filename, clientEmail: merged.company?.email || "", company: merged.company?.name || "", contactName: merged.company?.contact || "", topicsCount: (merged.topics || []).length, usersCount: (users || []).length }),
++          body: JSON.stringify({ sessionId: sidRef.current, xlsxBase64, brief: { ...merged, company: { ...merged.company, onboardingLanguage: uiLang }, users: users || [] }, filename, clientEmail: merged.company?.email || "", company: merged.company?.name || "", contactName: merged.company?.contact || "", topicsCount: (merged.topics || []).length, usersCount: (users || []).length }),
 +        }, 45000);
 +        if (sres.ok) { const sd = await sres.json().catch(() => ({})); sheetUrl = sd.url || null; }
 +      } catch (e) { console.error("Sheet generation failed (non-fatal)", e); }
