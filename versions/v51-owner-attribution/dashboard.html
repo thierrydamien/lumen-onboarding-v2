@@ -327,10 +327,16 @@
 
   function renderTable() {
     var q = FILTER.q.trim().toLowerCase();
+    // Owner data is joined onto sessions only after the seed fetch resolves
+    // (loadLinkSent). Apply the owner filter ONLY when owners are actually known,
+    // so an active owner filter can't hide every row during the initial render, on
+    // Refresh, or if the seed fetch fails (which would also hide the Owner dropdown,
+    // leaving an invisible filter recoverable only via Clear).
+    var ownersKnown = SESSIONS.concat(LINKSENT).some(function (s) { return s.owner; });
     var list = SESSIONS.concat(LINKSENT).filter(function (s) {
       if (FILTER.status !== "all" && displayStatus(s) !== FILTER.status) return false;
       if (FILTER.minPct > 0 && (s.percent != null ? s.percent : 0) < FILTER.minPct) return false;
-      if (FILTER.owner && FILTER.owner !== "all" && (s.owner || "") !== FILTER.owner) return false;
+      if (ownersKnown && FILTER.owner && FILTER.owner !== "all" && (s.owner || "") !== FILTER.owner) return false;
       if (q) {
         var hay = ((s.company || "") + " " + (s.contact || "") + " " + (s.email || "") + " " + (s.owner || "")).toLowerCase();
         if (hay.indexOf(q) === -1) return false;
