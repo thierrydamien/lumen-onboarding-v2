@@ -90,6 +90,7 @@ const T = {
 
 const SECTION_KEYS   = ["company","path","topics","channels","reports","users"];
 const SECTION_LABELS = { company:"About you", path:"Approach", topics:"What to track", channels:"Where to look", reports:"Reports", users:"Your team" };
+const SECTION_LABEL_KEYS = { company:"secAbout", path:"secApproach", topics:"secTrack", channels:"secLook", reports:"secReports", users:"secTeam" };
 const WIDGET_MAX     = { OBJECTIVES:3, TIMEZONE:1 };
 const MARKETS_OPT    = ["United States","United Kingdom","France","Germany","Spain","Italy","Netherlands","Canada","Australia","Brazil","Japan","South Korea","India","Middle East","APAC","LATAM","Global"];
 const LANG_OPT       = ["English","French","German","Spanish","Italian","Dutch","Portuguese","Japanese","Korean","Mandarin","Arabic","Hindi"];
@@ -198,7 +199,7 @@ const I18N = {
     step2Title: "A conversation, not a form",
     step2Desc:  "We'll cover your goals, what to track, where your audience talks, reports, and your team.",
     step3Title: "Then we take over",
-    step3Desc:  "Your setup brief goes straight to your Lumen team. A consultant contacts you within 2 business days to book your review call.",
+    step3Desc:  "Your setup brief goes straight to your Lumen team. A consultant follows up to book your review call.",
     disclaimer: "You'll be chatting with an AI assistant. Everything you share is reviewed by a Lumen consultant before any setup work begins.",
     startBtn:       "Start \u2014 about 15 min",
     startBtnSeeded: "Start {company}'s setup \u2014 about 15 min",
@@ -209,7 +210,23 @@ const I18N = {
     think1:         "Reading your answer\u2026",
     think2:         "Updating your setup brief\u2026",
     think3:         "Preparing the next step\u2026",
-    privacyNote:    "🔒 Your answers are shared only with your Lumen onboarding team.",
+    privacyNote:    "Your answers are shared only with your Lumen onboarding team.",
+    secAbout: "About you",
+    secApproach: "Approach",
+    secTrack: "What to track",
+    secLook: "Where to look",
+    secReports: "Reports",
+    secTeam: "Your team",
+    stepN: "Step {n} of {total}",
+    divDone: "{label} — done",
+    divToGo: "{n} to go",
+    hdrAssistant: "Onboarding Assistant",
+    hdrTagline: "Your answers go to your Lumen onboarding team",
+    savedFull: "✓ Saved on this device",
+    savedShort: "✓ Saved",
+    phReply: "Type your reply…",
+    phAnswerAbove: "Answer above — or just type it here",
+    reviewBtn: "Finished early, or stuck? Review and send your brief",
   },
   French: {
     welcomeTitle:       "Bienvenue dans l'intégration Lumen",
@@ -221,7 +238,7 @@ const I18N = {
     step2Title: "Une conversation, pas un formulaire",
     step2Desc:  "Nous aborderons vos objectifs, ce qu'il faut suivre, où votre audience s'exprime, les rapports et votre équipe.",
     step3Title: "Ensuite, nous prenons le relais",
-    step3Desc:  "Votre brief de configuration est transmis directement à votre équipe Lumen. Un consultant vous contacte sous 2 jours ouvrés pour planifier votre appel de révision.",
+    step3Desc:  "Votre brief de configuration est transmis directement à votre équipe Lumen. Un consultant vous contacte pour planifier votre appel de révision.",
     disclaimer: "Vous échangez avec un assistant IA. Tout ce que vous partagez est examiné par un consultant Lumen avant tout travail de configuration.",
     startBtn:       "Commencer (environ 15 min)",
     startBtnSeeded: "Démarrer la configuration de {company} (environ 15 min)",
@@ -232,7 +249,23 @@ const I18N = {
     think1:         "Je lis votre réponse…",
     think2:         "Je mets à jour votre brief…",
     think3:         "Je prépare la suite…",
-    privacyNote:    "🔒 Vos réponses ne sont partagées qu'avec votre équipe d'intégration Lumen.",
+    privacyNote:    "Vos réponses ne sont partagées qu'avec votre équipe d'intégration Lumen.",
+    secAbout: "À propos de vous",
+    secApproach: "Approche",
+    secTrack: "À surveiller",
+    secLook: "Où chercher",
+    secReports: "Rapports",
+    secTeam: "Votre équipe",
+    stepN: "Étape {n} sur {total}",
+    divDone: "{label} — terminé",
+    divToGo: "encore {n}",
+    hdrAssistant: "Assistant d'intégration",
+    hdrTagline: "Vos réponses sont transmises à votre équipe d'intégration Lumen",
+    savedFull: "✓ Enregistré sur cet appareil",
+    savedShort: "✓ Enregistré",
+    phReply: "Écrivez votre réponse…",
+    phAnswerAbove: "Répondez ci-dessus — ou écrivez-le ici",
+    reviewBtn: "Terminé plus tôt ou bloqué ? Revoyez et envoyez votre brief",
   },
   German: {
     welcomeTitle:       "Willkommen beim Lumen-Onboarding",
@@ -244,7 +277,7 @@ const I18N = {
     step2Title: "Ein Gespräch, kein Formular",
     step2Desc:  "Wir behandeln Ihre Ziele, was Sie beobachten möchten, wo Ihr Publikum spricht, Berichte und Ihr Team.",
     step3Title: "Dann übernehmen wir",
-    step3Desc:  "Ihr Setup-Briefing geht direkt an Ihr Lumen-Team. Ein Berater kontaktiert Sie innerhalb von 2 Werktagen, um Ihren Review-Termin zu vereinbaren.",
+    step3Desc:  "Ihr Setup-Briefing geht direkt an Ihr Lumen-Team. Ein Berater kontaktiert Sie, um Ihren Review-Termin zu vereinbaren.",
     disclaimer: "Sie chatten mit einem KI-Assistenten. Alles, was Sie teilen, wird von einem Lumen-Berater geprüft, bevor die Einrichtung beginnt.",
     startBtn:       "Starten (etwa 15 Min.)",
     startBtnSeeded: "Einrichtung für {company} starten (etwa 15 Min.)",
@@ -255,7 +288,23 @@ const I18N = {
     think1:         "Ich lese Ihre Antwort…",
     think2:         "Ich aktualisiere Ihr Briefing…",
     think3:         "Ich bereite den nächsten Schritt vor…",
-    privacyNote:    "🔒 Ihre Antworten werden nur mit Ihrem Lumen-Onboarding-Team geteilt.",
+    privacyNote:    "Ihre Antworten werden nur mit Ihrem Lumen-Onboarding-Team geteilt.",
+    secAbout: "Über Sie",
+    secApproach: "Vorgehen",
+    secTrack: "Was verfolgen",
+    secLook: "Wo suchen",
+    secReports: "Berichte",
+    secTeam: "Ihr Team",
+    stepN: "Schritt {n} von {total}",
+    divDone: "{label} — fertig",
+    divToGo: "noch {n}",
+    hdrAssistant: "Onboarding-Assistent",
+    hdrTagline: "Ihre Antworten gehen an Ihr Lumen-Onboarding-Team",
+    savedFull: "✓ Auf diesem Gerät gespeichert",
+    savedShort: "✓ Gespeichert",
+    phReply: "Antwort eingeben…",
+    phAnswerAbove: "Oben antworten — oder hier eintippen",
+    reviewBtn: "Früher fertig oder festgefahren? Brief prüfen und senden",
   },
   Spanish: {
     welcomeTitle:       "Bienvenido a la incorporación de Lumen",
@@ -267,7 +316,7 @@ const I18N = {
     step2Title: "Una conversación, no un formulario",
     step2Desc:  "Cubriremos sus objetivos, qué monitorizar, dónde habla su audiencia, los informes y su equipo.",
     step3Title: "Después nos encargamos nosotros",
-    step3Desc:  "Su resumen de configuración va directamente a su equipo de Lumen. Un consultor le contactará en un plazo de 2 días laborables para agendar su llamada de revisión.",
+    step3Desc:  "Su resumen de configuración va directamente a su equipo de Lumen. Un consultor le contactará para agendar su llamada de revisión.",
     disclaimer: "Está chateando con un asistente de IA. Todo lo que comparta es revisado por un consultor de Lumen antes de iniciar cualquier trabajo de configuración.",
     startBtn:       "Comenzar (unos 15 min)",
     startBtnSeeded: "Comenzar la configuración de {company} (unos 15 min)",
@@ -278,7 +327,23 @@ const I18N = {
     think1:         "Leyendo su respuesta…",
     think2:         "Actualizando su resumen…",
     think3:         "Preparando el siguiente paso…",
-    privacyNote:    "🔒 Sus respuestas solo se comparten con su equipo de incorporación de Lumen.",
+    privacyNote:    "Sus respuestas solo se comparten con su equipo de incorporación de Lumen.",
+    secAbout: "Sobre usted",
+    secApproach: "Enfoque",
+    secTrack: "Qué monitorizar",
+    secLook: "Dónde buscar",
+    secReports: "Informes",
+    secTeam: "Su equipo",
+    stepN: "Paso {n} de {total}",
+    divDone: "{label} — listo",
+    divToGo: "quedan {n}",
+    hdrAssistant: "Asistente de incorporación",
+    hdrTagline: "Sus respuestas se envían a su equipo de incorporación de Lumen",
+    savedFull: "✓ Guardado en este dispositivo",
+    savedShort: "✓ Guardado",
+    phReply: "Escriba su respuesta…",
+    phAnswerAbove: "Responda arriba — o escríbalo aquí",
+    reviewBtn: "¿Terminó antes o está atascado? Revise y envíe su brief",
   },
   Italian: {
     welcomeTitle:       "Benvenuto nell'onboarding di Lumen",
@@ -290,7 +355,7 @@ const I18N = {
     step2Title: "Una conversazione, non un modulo",
     step2Desc:  "Copriremo i tuoi obiettivi, cosa monitorare, dove parla il tuo pubblico, i report e il tuo team.",
     step3Title: "Poi ci pensiamo noi",
-    step3Desc:  "Il tuo brief di configurazione va direttamente al tuo team Lumen. Un consulente ti contatterà entro 2 giorni lavorativi per fissare la tua call di revisione.",
+    step3Desc:  "Il tuo brief di configurazione va direttamente al tuo team Lumen. Un consulente ti contatterà per fissare la tua call di revisione.",
     disclaimer: "Stai chattando con un assistente IA. Tutto ciò che condividi viene esaminato da un consulente Lumen prima di iniziare qualsiasi attività di configurazione.",
     startBtn:       "Inizia (circa 15 min)",
     startBtnSeeded: "Avvia la configurazione di {company} (circa 15 min)",
@@ -301,7 +366,23 @@ const I18N = {
     think1:         "Sto leggendo la tua risposta…",
     think2:         "Sto aggiornando il tuo brief…",
     think3:         "Sto preparando il passo successivo…",
-    privacyNote:    "🔒 Le tue risposte sono condivise solo con il tuo team di onboarding Lumen.",
+    privacyNote:    "Le tue risposte sono condivise solo con il tuo team di onboarding Lumen.",
+    secAbout: "Su di te",
+    secApproach: "Approccio",
+    secTrack: "Cosa monitorare",
+    secLook: "Dove cercare",
+    secReports: "Report",
+    secTeam: "Il tuo team",
+    stepN: "Passo {n} di {total}",
+    divDone: "{label} — completato",
+    divToGo: "ancora {n}",
+    hdrAssistant: "Assistente di onboarding",
+    hdrTagline: "Le tue risposte vanno al tuo team di onboarding Lumen",
+    savedFull: "✓ Salvato su questo dispositivo",
+    savedShort: "✓ Salvato",
+    phReply: "Scrivi la tua risposta…",
+    phAnswerAbove: "Rispondi sopra — o scrivilo qui",
+    reviewBtn: "Finito prima o bloccato? Rivedi e invia il tuo brief",
   },
   Arabic: {
     welcomeTitle:       "مرحبًا بك في إعداد Lumen",
@@ -313,7 +394,7 @@ const I18N = {
     step2Title: "محادثة، وليست نموذجًا",
     step2Desc:  "سنغطي أهدافك، وما الذي تريد متابعته، وأين يتحدث جمهورك، والتقارير، وفريقك.",
     step3Title: "ثم نتولى نحن الأمر",
-    step3Desc:  "يُرسل ملخص الإعداد الخاص بك مباشرةً إلى فريق Lumen. سيتواصل معك أحد الاستشاريين خلال يومَي عمل لتحديد موعد مكالمة المراجعة.",
+    step3Desc:  "يُرسل ملخص الإعداد الخاص بك مباشرةً إلى فريق Lumen. سيتواصل معك أحد الاستشاريين لتحديد موعد مكالمة المراجعة.",
     disclaimer: "أنت تتحدث مع مساعد ذكاء اصطناعي. تتم مراجعة كل ما تشاركه من قِبل استشاري Lumen قبل بدء أي عمل إعداد.",
     startBtn:       "ابدأ (حوالي 15 دقيقة)",
     startBtnSeeded: "ابدأ إعداد {company} (حوالي 15 دقيقة)",
@@ -324,7 +405,23 @@ const I18N = {
     think1:         "أقرأ إجابتك…",
     think2:         "أُحدّث ملخص الإعداد…",
     think3:         "أُجهّز الخطوة التالية…",
-    privacyNote:    "🔒 لا تتم مشاركة إجاباتك إلا مع فريق إعداد Lumen الخاص بك.",
+    privacyNote:    "لا تتم مشاركة إجاباتك إلا مع فريق إعداد Lumen الخاص بك.",
+    secAbout: "عنك",
+    secApproach: "النهج",
+    secTrack: "ما نراقبه",
+    secLook: "أين نبحث",
+    secReports: "التقارير",
+    secTeam: "فريقك",
+    stepN: "الخطوة {n} من {total}",
+    divDone: "{label} — تم",
+    divToGo: "متبقٍ {n}",
+    hdrAssistant: "مساعد الإعداد",
+    hdrTagline: "تُرسَل إجاباتك إلى فريق الإعداد لديك في Lumen",
+    savedFull: "✓ محفوظ على هذا الجهاز",
+    savedShort: "✓ محفوظ",
+    phReply: "اكتب ردك…",
+    phAnswerAbove: "أجب أعلاه — أو اكتبه هنا",
+    reviewBtn: "انتهيت مبكرًا أو تواجه صعوبة؟ راجع وأرسل موجزك",
   },
 };
 
@@ -375,12 +472,12 @@ function QN(key, lang, vars) {
 // French client would otherwise hit an English wall at the payoff moment. These
 // cover the titles, the "what happens next" timeline, and the action buttons.
 const FN18N = {
-  English: { titleSent:"Brief sent to your Lumen team", titlePre:"One last step: send your brief", descSheet:"Your setup brief has been sent, and we've shared an editable Google Sheet with you (check your email). Update it anytime before your review call and your consultant will see the changes.", descPlain:"Your setup brief has been sent to your Lumen team. Here's what happens next.", descPre:"Review your brief, then send it straight to your Lumen team, nothing to download or email.", s1a:"We review your brief", s1b:"within 2 business days", s2a:"Your review call", s2b:"we finalise the setup together", s3a:"Go live", s3b:"your dashboards start tracking", openSheet:"Open your brief (Google Sheet)", review:"Review", reviewDl:"Review / download a copy", reviewSend:"Review & send" },
-  French: { titleSent:"Brief envoyé à votre équipe Lumen", titlePre:"Dernière étape : envoyez votre brief", descSheet:"Votre brief de configuration a été envoyé, et nous avons partagé avec vous un Google Sheet modifiable (vérifiez votre e-mail). Mettez-le à jour à tout moment avant votre appel de révision, et votre consultant verra les changements.", descPlain:"Votre brief de configuration a été envoyé à votre équipe Lumen. Voici la suite.", descPre:"Vérifiez votre brief, puis envoyez-le directement à votre équipe Lumen : rien à télécharger ni à envoyer par e-mail.", s1a:"Nous examinons votre brief", s1b:"sous 2 jours ouvrés", s2a:"Votre appel de révision", s2b:"nous finalisons la configuration ensemble", s3a:"Mise en service", s3b:"vos tableaux de bord commencent le suivi", openSheet:"Ouvrir votre brief (Google Sheet)", review:"Consulter", reviewDl:"Consulter / télécharger une copie", reviewSend:"Vérifier et envoyer" },
-  German: { titleSent:"Briefing an Ihr Lumen-Team gesendet", titlePre:"Letzter Schritt: Briefing senden", descSheet:"Ihr Setup-Briefing wurde gesendet, und wir haben ein bearbeitbares Google Sheet mit Ihnen geteilt (prüfen Sie Ihre E-Mail). Aktualisieren Sie es jederzeit vor Ihrem Review-Termin, und Ihr Berater sieht die Änderungen.", descPlain:"Ihr Setup-Briefing wurde an Ihr Lumen-Team gesendet. So geht es weiter.", descPre:"Prüfen Sie Ihr Briefing und senden Sie es direkt an Ihr Lumen-Team, ganz ohne Download oder E-Mail.", s1a:"Wir prüfen Ihr Briefing", s1b:"innerhalb von 2 Werktagen", s2a:"Ihr Review-Termin", s2b:"wir finalisieren das Setup gemeinsam", s3a:"Go-live", s3b:"Ihre Dashboards starten das Tracking", openSheet:"Ihr Briefing öffnen (Google Sheet)", review:"Ansehen", reviewDl:"Ansehen / Kopie herunterladen", reviewSend:"Prüfen und senden" },
-  Spanish: { titleSent:"Resumen enviado a su equipo de Lumen", titlePre:"Último paso: envíe su resumen", descSheet:"Su resumen de configuración se ha enviado y hemos compartido con usted una hoja de Google editable (revise su correo). Actualícela cuando quiera antes de su llamada de revisión y su consultor verá los cambios.", descPlain:"Su resumen de configuración se ha enviado a su equipo de Lumen. Esto es lo que sigue.", descPre:"Revise su resumen y envíelo directamente a su equipo de Lumen, sin nada que descargar ni enviar por correo.", s1a:"Revisamos su resumen", s1b:"en un plazo de 2 días laborables", s2a:"Su llamada de revisión", s2b:"finalizamos la configuración juntos", s3a:"Puesta en marcha", s3b:"sus paneles empiezan a monitorizar", openSheet:"Abrir su resumen (Google Sheet)", review:"Revisar", reviewDl:"Revisar / descargar una copia", reviewSend:"Revisar y enviar" },
-  Italian: { titleSent:"Brief inviato al tuo team Lumen", titlePre:"Ultimo passo: invia il tuo brief", descSheet:"Il tuo brief di configurazione è stato inviato e abbiamo condiviso con te un Foglio Google modificabile (controlla la tua e-mail). Aggiornalo quando vuoi prima della call di revisione e il tuo consulente vedrà le modifiche.", descPlain:"Il tuo brief di configurazione è stato inviato al tuo team Lumen. Ecco cosa succede ora.", descPre:"Controlla il tuo brief e invialo direttamente al tuo team Lumen, senza nulla da scaricare o inviare via e-mail.", s1a:"Esaminiamo il tuo brief", s1b:"entro 2 giorni lavorativi", s2a:"La tua call di revisione", s2b:"finalizziamo insieme la configurazione", s3a:"Go-live", s3b:"le tue dashboard iniziano il monitoraggio", openSheet:"Apri il tuo brief (Foglio Google)", review:"Rivedi", reviewDl:"Rivedi / scarica una copia", reviewSend:"Rivedi e invia" },
-  Arabic: { titleSent:"تم إرسال الملخص إلى فريق Lumen", titlePre:"خطوة أخيرة: أرسل ملخصك", descSheet:"تم إرسال ملخص الإعداد الخاص بك، وشاركنا معك جدول Google قابلًا للتعديل (تحقق من بريدك الإلكتروني). حدّثه في أي وقت قبل مكالمة المراجعة وسيرى استشاريك التغييرات.", descPlain:"تم إرسال ملخص الإعداد الخاص بك إلى فريق Lumen. إليك ما سيحدث بعد ذلك.", descPre:"راجع ملخصك، ثم أرسله مباشرةً إلى فريق Lumen، دون أي شيء لتنزيله أو إرساله بالبريد.", s1a:"نراجع ملخصك", s1b:"خلال يومَي عمل", s2a:"مكالمة المراجعة", s2b:"ننهي الإعداد معًا", s3a:"الانطلاق", s3b:"تبدأ لوحاتك في التتبع", openSheet:"افتح ملخصك (جدول Google)", review:"مراجعة", reviewDl:"مراجعة / تنزيل نسخة", reviewSend:"مراجعة وإرسال" },
+  English: { titleSent:"Brief sent to your Lumen team", titlePre:"One last step: send your brief", descSheet:"Your setup brief has been sent, and we've shared an editable Google Sheet with you (check your email). Update it anytime before your review call and your consultant will see the changes.", descPlain:"Your setup brief has been sent to your Lumen team. Here's what happens next.", descPre:"Review your brief, then send it straight to your Lumen team, nothing to download or email.", s1a:"We review your brief", s1b:"and follow up with you", s2a:"Your review call", s2b:"we finalise the setup together", s3a:"Go live", s3b:"your dashboards start tracking", openSheet:"Open your brief (Google Sheet)", review:"Review", reviewDl:"Review / download a copy", reviewSend:"Review & send" },
+  French: { titleSent:"Brief envoyé à votre équipe Lumen", titlePre:"Dernière étape : envoyez votre brief", descSheet:"Votre brief de configuration a été envoyé, et nous avons partagé avec vous un Google Sheet modifiable (vérifiez votre e-mail). Mettez-le à jour à tout moment avant votre appel de révision, et votre consultant verra les changements.", descPlain:"Votre brief de configuration a été envoyé à votre équipe Lumen. Voici la suite.", descPre:"Vérifiez votre brief, puis envoyez-le directement à votre équipe Lumen : rien à télécharger ni à envoyer par e-mail.", s1a:"Nous examinons votre brief", s1b:"et vous recontactons", s2a:"Votre appel de révision", s2b:"nous finalisons la configuration ensemble", s3a:"Mise en service", s3b:"vos tableaux de bord commencent le suivi", openSheet:"Ouvrir votre brief (Google Sheet)", review:"Consulter", reviewDl:"Consulter / télécharger une copie", reviewSend:"Vérifier et envoyer" },
+  German: { titleSent:"Briefing an Ihr Lumen-Team gesendet", titlePre:"Letzter Schritt: Briefing senden", descSheet:"Ihr Setup-Briefing wurde gesendet, und wir haben ein bearbeitbares Google Sheet mit Ihnen geteilt (prüfen Sie Ihre E-Mail). Aktualisieren Sie es jederzeit vor Ihrem Review-Termin, und Ihr Berater sieht die Änderungen.", descPlain:"Ihr Setup-Briefing wurde an Ihr Lumen-Team gesendet. So geht es weiter.", descPre:"Prüfen Sie Ihr Briefing und senden Sie es direkt an Ihr Lumen-Team, ganz ohne Download oder E-Mail.", s1a:"Wir prüfen Ihr Briefing", s1b:"und melden uns bei Ihnen", s2a:"Ihr Review-Termin", s2b:"wir finalisieren das Setup gemeinsam", s3a:"Go-live", s3b:"Ihre Dashboards starten das Tracking", openSheet:"Ihr Briefing öffnen (Google Sheet)", review:"Ansehen", reviewDl:"Ansehen / Kopie herunterladen", reviewSend:"Prüfen und senden" },
+  Spanish: { titleSent:"Resumen enviado a su equipo de Lumen", titlePre:"Último paso: envíe su resumen", descSheet:"Su resumen de configuración se ha enviado y hemos compartido con usted una hoja de Google editable (revise su correo). Actualícela cuando quiera antes de su llamada de revisión y su consultor verá los cambios.", descPlain:"Su resumen de configuración se ha enviado a su equipo de Lumen. Esto es lo que sigue.", descPre:"Revise su resumen y envíelo directamente a su equipo de Lumen, sin nada que descargar ni enviar por correo.", s1a:"Revisamos su resumen", s1b:"y nos ponemos en contacto", s2a:"Su llamada de revisión", s2b:"finalizamos la configuración juntos", s3a:"Puesta en marcha", s3b:"sus paneles empiezan a monitorizar", openSheet:"Abrir su resumen (Google Sheet)", review:"Revisar", reviewDl:"Revisar / descargar una copia", reviewSend:"Revisar y enviar" },
+  Italian: { titleSent:"Brief inviato al tuo team Lumen", titlePre:"Ultimo passo: invia il tuo brief", descSheet:"Il tuo brief di configurazione è stato inviato e abbiamo condiviso con te un Foglio Google modificabile (controlla la tua e-mail). Aggiornalo quando vuoi prima della call di revisione e il tuo consulente vedrà le modifiche.", descPlain:"Il tuo brief di configurazione è stato inviato al tuo team Lumen. Ecco cosa succede ora.", descPre:"Controlla il tuo brief e invialo direttamente al tuo team Lumen, senza nulla da scaricare o inviare via e-mail.", s1a:"Esaminiamo il tuo brief", s1b:"e ti ricontattiamo", s2a:"La tua call di revisione", s2b:"finalizziamo insieme la configurazione", s3a:"Go-live", s3b:"le tue dashboard iniziano il monitoraggio", openSheet:"Apri il tuo brief (Foglio Google)", review:"Rivedi", reviewDl:"Rivedi / scarica una copia", reviewSend:"Rivedi e invia" },
+  Arabic: { titleSent:"تم إرسال الملخص إلى فريق Lumen", titlePre:"خطوة أخيرة: أرسل ملخصك", descSheet:"تم إرسال ملخص الإعداد الخاص بك، وشاركنا معك جدول Google قابلًا للتعديل (تحقق من بريدك الإلكتروني). حدّثه في أي وقت قبل مكالمة المراجعة وسيرى استشاريك التغييرات.", descPlain:"تم إرسال ملخص الإعداد الخاص بك إلى فريق Lumen. إليك ما سيحدث بعد ذلك.", descPre:"راجع ملخصك، ثم أرسله مباشرةً إلى فريق Lumen، دون أي شيء لتنزيله أو إرساله بالبريد.", s1a:"نراجع ملخصك", s1b:"ونتواصل معك", s2a:"مكالمة المراجعة", s2b:"ننهي الإعداد معًا", s3a:"الانطلاق", s3b:"تبدأ لوحاتك في التتبع", openSheet:"افتح ملخصك (جدول Google)", review:"مراجعة", reviewDl:"مراجعة / تنزيل نسخة", reviewSend:"مراجعة وإرسال" },
 };
 function FN(key, lang) { const d = FN18N[lang] || FN18N.English; return (d[key] != null ? d[key] : FN18N.English[key]) || ""; }
 
@@ -670,7 +767,7 @@ function TypingIndicator({ lang }) {
     <span key={step} style={{fontSize:13,color:"#64748b",animation:REDUCE_MOTION?"none":"slideUpFade .3s ease-out"}}>{label}</span>
   </>}</div>;
 }
-function Stepper({ progress, dark, compact }) {
+function Stepper({ progress, dark, compact, lang }) {
   const inactive = dark?"#2d4a6a":"#E7E7EF", muted = dark?"#8aa4c1":"#64748b", F = A, circleBg = dark?"#111f30":"#ffffff";
   // Mobile (C7): a six-dot row is cramped on a phone. Collapse to one clear
   // "Step N of 6 · Label" line plus a thin fill bar.
@@ -678,10 +775,10 @@ function Stepper({ progress, dark, compact }) {
     const idx = Math.max(0, SECTION_KEYS.indexOf(progress.section));
     const doneCount = SECTION_KEYS.filter(k=>progress.collected?.[k]).length;
     const total = SECTION_KEYS.length, pct = Math.round((doneCount/total)*100);
-    const label = SECTION_LABELS[progress.section] || "";
+    const label = L(SECTION_LABEL_KEYS[progress.section], lang) || "";
     return <div style={{width:"100%"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:6}}>
-        <span style={{fontSize:12,fontWeight:700,color:dark?"#c8d8e8":P}}>Step {idx+1} of {total}{label?" · ":""}<span style={{color:muted,fontWeight:600}}>{label}</span></span>
+        <span style={{fontSize:12,fontWeight:700,color:dark?"#c8d8e8":P}}>{L("stepN",lang,{n:idx+1,total})}{label?" · ":""}<span style={{color:muted,fontWeight:600}}>{label}</span></span>
         <span style={{fontSize:11,color:muted}}>{pct}%</span>
       </div>
       <div style={{height:4,background:inactive,borderRadius:2,overflow:"hidden"}}><div style={{height:"100%",width:pct+"%",background:F,borderRadius:2,transition:"width 0.4s"}}/></div>
@@ -692,7 +789,7 @@ function Stepper({ progress, dark, compact }) {
     return <div key={key} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",position:"relative"}}>
       {i < SECTION_KEYS.length-1 && <div style={{position:"absolute",top:11,left:"50%",width:"100%",height:2,background:done?F:inactive,zIndex:0,transition:"background 0.4s"}}/>}
       <div style={{width:22,height:22,borderRadius:"50%",border:`2px solid ${done||cur?F:inactive}`,background:done?F:circleBg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,color:done?"white":cur?F:muted,zIndex:1,transition:"all 0.3s",boxShadow:cur&&!done?`0 0 0 4px ${A}22`:"none"}}>{done?<span style={{display:"inline-flex",animation:REDUCE_MOTION?"none":"popIn .3s ease-out"}}>✓</span>:i+1}</div>
-      {(!compact || cur) && <div style={{fontSize:10,marginTop:4,color:done||cur?P:muted,fontWeight:done||cur?600:400,whiteSpace:"nowrap"}}>{SECTION_LABELS[key]}</div>}
+      {(!compact || cur) && <div style={{fontSize:10,marginTop:4,color:done||cur?P:muted,fontWeight:done||cur?600:400,whiteSpace:"nowrap"}}>{L(SECTION_LABEL_KEYS[key],lang)}</div>}
     </div>;
   })}</div>;
 }
@@ -1704,7 +1801,7 @@ function OnboardingApp({ seed, seedId, seedError, onBriefSent, onSeeProserv }) {
         applyCdata(pr);
         histRef.current.push({role:"assistant",content:stripThoughtForHistory(raw)});
         if (sndRef.current) pop();
-        const dv = maybeDivider(prog);
+        const dv = maybeDivider(prog, uiLang);
         setMessages(p=>[...p,...(dv?[dv]:[]),{role:"assistant",content:clean,widgets,topicSuggestions,quickReplies,timestamp:gts(),raw}]);
         setLoading(false);
         return true;
@@ -1839,7 +1936,7 @@ function OnboardingApp({ seed, seedId, seedError, onBriefSent, onSeeProserv }) {
     }
   }, [chime, cdata, onBriefSent, seed, seedId, uiLang]);
 
-  const maybeDivider = useCallback(prog => {
+  const maybeDivider = useCallback((prog, lang) => {
     const sec = prog?.section;
     if (!sec) return null;
     const prev = prevSecRef.current;
@@ -1848,7 +1945,7 @@ function OnboardingApp({ seed, seedId, seedError, onBriefSent, onSeeProserv }) {
     const pi = SECTION_KEYS.indexOf(prev), ni = SECTION_KEYS.indexOf(sec);
     if (pi === -1 || ni === -1 || ni <= pi) return null;
     const remaining = SECTION_KEYS.length - ni;
-    return { role:"divider", label:`${SECTION_LABELS[prev]} — done`, sub: remaining>0?`${remaining} section${remaining!==1?"s":""} to go`:"", timestamp:gts() };
+    return { role:"divider", label:L("divDone",lang,{label:L(SECTION_LABEL_KEYS[prev],lang)}), sub: remaining>0?L("divToGo",lang,{n:remaining}):"", timestamp:gts() };
   }, []);
 
   const widgetSum = (type, data) =>
@@ -2007,7 +2104,7 @@ function OnboardingApp({ seed, seedId, seedError, onBriefSent, onSeeProserv }) {
       if (prog) setProgress(prog);
       histRef.current.push({role:"assistant",content:stripThoughtForHistory(raw)});
       if (sndRef.current) pop();
-      const dv = maybeDivider(prog);
+      const dv = maybeDivider(prog, uiLang);
       setMessages(p=>[...p,...(dv?[dv]:[]),{role:"assistant",content:clean,widgets,topicSuggestions,quickReplies,timestamp:gts(),raw}]);
       setSaved(null); // only clear the resume draft once we've actually continued
     } catch (e) {
@@ -2229,7 +2326,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
                 <span style={{fontWeight:800,fontSize:16,color:A,letterSpacing:"-0.01em"}}>Lumen</span>
                 <span style={{fontWeight:700,fontSize:8,color:dark?"#8fa8d8":NAVY,letterSpacing:"0.02em"}}>by Talkwalker</span>
               </span>
-              <span style={{color:C.muted,fontSize:12,paddingLeft:2}}>Onboarding Assistant</span>
+              <span style={{color:C.muted,fontSize:12,paddingLeft:2}}>{L("hdrAssistant",uiLang)}</span>
               {DEV && <button onClick={loadTestSession} title="Loads a completed session so you can preview the export" style={{background:"transparent",border:"1px solid #d97706",color:"#92400e",fontSize:10,fontWeight:600,padding:"2px 8px",borderRadius:4,cursor:"pointer",marginLeft:2}}>▶ Preview completed demo</button>}
               {DEV && <div style={{position:"relative",display:"inline-block"}}>
                 <button onClick={()=>setShowSmokeMenu(s=>!s)} disabled={!!smoke} title="Auto-runs a full conversation against a simulated client persona to regression-test the flow" style={{background:"transparent",border:"1px solid #d97706",color:"#92400e",fontSize:10,fontWeight:600,padding:"2px 8px",borderRadius:4,cursor:smoke?"default":"pointer",marginLeft:2,opacity:smoke?0.5:1}}>Simulate conversation</button>
@@ -2239,7 +2336,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
               </div>}
             </div>
             <div style={{fontSize:11,color:C.muted,marginTop:1}}>
-              <>Your answers go to your Lumen onboarding team</>
+              <>{L("hdrTagline",uiLang)}</>
             </div>
           </div>
         </div>
@@ -2253,10 +2350,10 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
       {/* Stepper */}
       {started && <div style={{background:C.card,borderBottom:`1px solid ${C.border}`,padding:"14px 24px",flexShrink:0}}>
         <div style={{maxWidth:640,margin:"0 auto",display:"flex",alignItems:"flex-end",gap:16}}>
-          <div style={{flex:1}}><Stepper progress={progress} dark={dark} compact={mob}/></div>
+          <div style={{flex:1}}><Stepper progress={progress} dark={dark} compact={mob} lang={uiLang}/></div>
           {/* Shown on mobile too (compact form): the welcome screen promises "pause
               anytime", and the mostly-mobile audience needs the safe-to-leave signal. */}
-          {!sent && draftOk && <div style={{fontSize:11,color:C.muted,whiteSpace:"nowrap",paddingBottom:2}}>{mob?"✓ Saved":"✓ Saved on this device"}</div>}
+          {!sent && draftOk && <div style={{fontSize:11,color:C.muted,whiteSpace:"nowrap",paddingBottom:2}}>{L(mob?"savedShort":"savedFull",uiLang)}</div>}
         </div>
       </div>}
 
@@ -2424,7 +2521,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
             <textarea ref={taRef} value={input}
               onChange={e=>{setInput(e.target.value);if(taRef.current){taRef.current.style.height="auto";taRef.current.style.height=taRef.current.scrollHeight+"px";}}}
               onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendMsg();}}}
-              aria-label="Type your reply" placeholder={last?.role==="assistant"&&(last.widgets||[]).some(w=>!wState[`${messages.length-1}-${w}`]?.submitted)?"Answer above — or just type it here":"Type your reply…"} rows={1}
+              aria-label={L("phReply",uiLang)} placeholder={last?.role==="assistant"&&(last.widgets||[]).some(w=>!wState[`${messages.length-1}-${w}`]?.submitted)?L("phAnswerAbove",uiLang):L("phReply",uiLang)} rows={1}
               style={{flex:1,background:C.bg,border:`1.5px solid ${C.border}`,borderRadius:10,padding:"11px 14px",fontSize:mob?16:14,resize:"none",outline:"none",color:C.text}}/>
             <button onClick={()=>sendMsg()} aria-label="Send message" disabled={!input.trim()&&!loading}
               style={{background:A,color:"white",border:"none",borderRadius:12,width:44,height:44,cursor:input.trim()||loading?"pointer":"default",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",opacity:input.trim()||loading?1:0.4,boxShadow:input.trim()&&!loading?"0 4px 14px rgba(126,72,236,0.35)":"none"}}>
@@ -2438,7 +2535,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
               11px faint underlined micro-text — the least visible thing on screen at
               exactly the moment it matters. */}
           {!done && progress.percent >= 15 && <div style={{textAlign:"center",marginTop:8}}>
-            <button onClick={()=>setShowExport(true)} style={{background:"transparent",border:`1px solid ${C.border}`,borderRadius:8,color:C.text,fontSize:12,fontWeight:600,cursor:"pointer",padding:"8px 14px",minHeight:36}}>Finished early, or stuck? Review and send your brief</button>
+            <button onClick={()=>setShowExport(true)} style={{background:"transparent",border:`1px solid ${C.border}`,borderRadius:8,color:C.text,fontSize:12,fontWeight:600,cursor:"pointer",padding:"8px 14px",minHeight:36}}>{L("reviewBtn",uiLang)}</button>
           </div>}
         </div>
       </div>}
