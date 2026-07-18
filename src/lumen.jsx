@@ -2436,6 +2436,11 @@ a{transition:color var(--dur-base) var(--ease-out),opacity var(--dur-base) var(-
 [dir="rtl"]{font-family:'Inter','Geeza Pro','Noto Sans Arabic',Tahoma,Arial,sans-serif}
 button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,[tabindex]:focus-visible{outline:2px solid #6D28D9 !important;outline-offset:2px !important}
 @media (prefers-reduced-motion: reduce){*{animation:none !important;transition:none !important}}
+/* Form controls don't inherit font-family by default — textareas fall back to the
+   UA monospace, so the composer/paste boxes rendered in a typewriter font instead
+   of Inter. Inherit it so every field matches the app. Inline fontFamily overrides
+   (e.g. the DEV panels' Arial) still win, as they should. */
+input,textarea,select,button{font-family:inherit}
 @media (max-width:640px){input,textarea,select{font-size:16px !important}}`}</style>
 
       {smoke && <div style={{position:"fixed",bottom:140,left:"50%",transform:"translateX(-50%)",zIndex:300,background:"#1e293b",color:"white",borderRadius:10,padding:"10px 16px",fontSize:13,display:"flex",gap:12,alignItems:"center",boxShadow:"0 4px 16px rgba(0,0,0,0.25)",whiteSpace:"nowrap"}}>
