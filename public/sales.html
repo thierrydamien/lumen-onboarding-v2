@@ -4,83 +4,125 @@
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <meta name="robots" content="noindex, nofollow"/>
-<link rel="icon" href="data:,"/>
+<link rel="icon" href="/lumen-mark.png"/>
 <title>Lumen Onboarding — Generate Client Link</title>
-<!-- INTERNAL PAGE: gate behind Netlify password protection or Identity before
-     production. noindex is a hint to crawlers, not access control. -->
-
+<!-- INTERNAL PAGE (Sales): gate behind Netlify password protection or Identity
+     before production. noindex is a hint to crawlers, not access control. -->
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"/>
 <style>
   :root {
-    --teal:#012B3A; --cherry:#FF4C46; --mint:#DFFFDE; --border:#e2e8f0; --muted:#5b6b76;
-    /* H2: mirror the chat's design tokens (the T object in lumen.jsx) so all three
-       surfaces provably use one system and a change propagates by name. */
+    /* Mirror the client chat's look (Inter + Lumen purple + waveform mark) so the
+       generator and the chat read as one product. Hootsuite teal is kept for body
+       text only. Design tokens match the T object in lumen.jsx by name. */
+    --purple:#7C3AED; --purple-soft:#EDE7FB; --teal:#012B3A;
+    --ink:#0f172a; --muted:#64748b; --border:#e6e8ee; --bg:#f6f5fb; --card:#fff;
     --radius-sm:6px; --radius-md:10px; --radius-lg:16px;
-    --shadow-raise:0 1px 3px rgba(1,43,58,.08); --shadow-float:0 8px 24px rgba(0,0,0,.12); --shadow-modal:0 16px 48px rgba(0,0,0,.2);
+    --shadow-modal:0 16px 48px rgba(0,0,0,.2);
   }
   * { box-sizing:border-box; }
-  body { margin:0; font-family:Arial, Helvetica, sans-serif; color:var(--teal); background:#f4f6f8; }
-  .bar { background:var(--teal); color:#fff; padding:14px 20px; font-weight:700; }
-  .wrap { max-width:620px; margin:32px auto; padding:0 20px; }
-  .card { background:#fff; border:1px solid var(--border); border-radius:var(--radius-lg); padding:24px; }
-  h1 { font-size:18px; margin:0 0 4px; }
-  p.sub { margin:0 0 20px; color:var(--muted); font-size:13px; }
-  label { display:block; font-size:12px; font-weight:700; margin:14px 0 5px; }
+  body { margin:0; font-family:'Inter',Arial,Helvetica,sans-serif; color:var(--ink); background:var(--bg); }
+
+  .top { background:#fff; border-bottom:1px solid var(--border); padding:12px 24px; display:flex; align-items:center; gap:12px; }
+  .mark { width:34px; height:34px; border-radius:50%; background:var(--purple-soft); display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+  .mark img { width:20px; height:20px; display:block; }
+  .brand b { font-size:15px; color:var(--purple); letter-spacing:-.01em; }
+  .brand .by { font-size:10px; color:var(--muted); }
+  .top .role { margin-left:auto; font-size:12px; color:var(--muted); }
+
+  .wrap { max-width:680px; margin:26px auto; padding:0 20px; }
+  .lead h1 { font-size:22px; margin:0 0 4px; letter-spacing:-.01em; color:var(--teal); }
+
+  /* How it works: the flow the client goes through after they get the link. */
+  .how { display:flex; gap:12px; margin:18px 0 22px; }
+  .step { flex:1; background:var(--card); border:1px solid var(--border); border-radius:14px; padding:14px 15px; }
+  .step .n { width:22px; height:22px; border-radius:50%; background:var(--purple); color:#fff; font-size:12px; font-weight:700; display:flex; align-items:center; justify-content:center; margin-bottom:9px; }
+  .step h4 { margin:0 0 3px; font-size:13px; color:var(--teal); }
+  .step p { margin:0; font-size:12px; color:var(--muted); line-height:1.45; }
+
+  .card { background:var(--card); border:1px solid var(--border); border-radius:var(--radius-lg); padding:24px; }
+  .card h3 { margin:0 0 2px; font-size:15px; color:var(--teal); }
+  .card .csub { margin:0 0 4px; color:var(--muted); font-size:12.5px; }
+  .sec { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); margin:20px 0 8px; padding-bottom:7px; border-bottom:1px solid var(--border); }
+  label { display:block; font-size:12px; font-weight:600; margin:12px 0 5px; color:var(--teal); }
   label .opt { font-weight:400; color:var(--muted); }
-  input, textarea, select { width:100%; border:1px solid var(--border); border-radius:8px; padding:10px 12px; font-size:13px; font-family:inherit; color:var(--teal); outline:none; }
+  input, textarea, select { width:100%; border:1px solid var(--border); border-radius:9px; padding:10px 12px; font-size:13px; font-family:inherit; color:var(--ink); outline:none; background:#fff; }
+  input:focus, textarea:focus, select:focus { border-color:var(--purple); box-shadow:0 0 0 3px rgba(124,58,237,.12); }
   textarea { resize:vertical; }
-  .row { display:flex; gap:12px; }
-  .row > div { flex:1; }
-  .actions { display:flex; gap:10px; align-items:center; margin-top:20px; flex-wrap:wrap; }
-  button { border:none; border-radius:8px; padding:10px 20px; font-size:13px; font-weight:700; cursor:pointer; font-family:inherit; }
-  .primary { background:var(--cherry); color:#fff; }
-  .primary:disabled { background:#f0b3b1; cursor:default; }
-  .ghost { background:transparent; color:var(--muted); border:1px solid var(--border); }
-  .out { margin-top:20px; border:1px solid var(--border); border-radius:10px; background:#f8fafb; max-height:0; opacity:0; overflow:hidden; padding:0 16px; transition:max-height .3s ease, opacity .3s ease, padding .3s ease; }
-  .out.show { max-height:900px; opacity:1; padding:16px; } /* tall enough for link + pre-work checklist */
-  .pwhead { font-weight:700; font-size:13px; margin-top:16px; padding-top:14px; border-top:1px solid var(--border); }
-  #prework { margin-top:8px; font-size:12px; line-height:1.55; background:#fff; }
-  .linkbox { display:flex; gap:8px; margin-top:8px; }
-  .linkbox input { background:#fff; font-size:12px; }
-  .hint { font-size:11px; color:var(--muted); margin-top:8px; }
-  .note { font-size:11px; color:var(--muted); margin-top:6px; }
-  /* A2: hover/active feedback on the internal-tool buttons. */
-  button { transition:filter .15s ease, transform .08s ease; }
-  button:not(:disabled):hover { filter:brightness(1.06); }
+  .row { display:flex; gap:12px; } .row > div { flex:1; }
+
+  .notewrap { background:#faf9fe; border:1px solid #ece8f8; border-radius:11px; padding:12px; margin-top:6px; }
+  .notewrap .cap { font-size:11.5px; color:var(--purple); font-weight:600; margin-bottom:7px; }
+  .notewrap textarea { background:#fff; }
+  .chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:9px; }
+  .chip { font-size:11px; color:var(--muted); background:#fff; border:1px solid var(--border); border-radius:999px; padding:5px 11px; cursor:pointer; font-family:inherit; transition:border-color .12s, color .12s; }
+  .chip:hover { border-color:var(--purple); color:var(--purple); }
+
+  button { font-family:inherit; transition:filter .15s ease, transform .08s ease; }
+  button:not(:disabled):hover { filter:brightness(1.05); }
   button:not(:disabled):active { transform:translateY(1px); }
-  .ghost:hover { background:#eef1f5; }
-  /* D1: section grouping. */
-  .section { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); margin:22px 0 4px; padding-bottom:6px; border-bottom:1px solid var(--border); }
-  .section.first { margin-top:6px; }
-  /* D3: inline validation instead of alert(). */
-  input.invalid, textarea.invalid { border-color:var(--cherry); }
-  .ferr { color:var(--cherry); font-size:11px; margin-top:4px; }
-  .formerr { color:var(--cherry); font-size:12.5px; margin-top:12px; min-height:16px; }
-  /* D4: "Fill example" demoted from a peer button to a quiet text link. */
-  .linklike { background:transparent; border:none; color:var(--muted); text-decoration:underline; font-size:12px; padding:10px 0 0; cursor:pointer; font-family:inherit; font-weight:400; }
-  .primary:disabled { background:#f0b3b1; cursor:default; }
-  .primary.copied { background:#0a7d3f; }
-  /* E1-consistency: styled write-token card, no window.prompt(). */
-  .gate { position:fixed; inset:0; background:rgba(1,43,58,.4); display:none; align-items:center; justify-content:center; padding:20px; z-index:200; }
+  .btn { border:none; border-radius:10px; padding:12px 22px; font-size:13.5px; font-weight:700; cursor:pointer; background:var(--purple); color:#fff; box-shadow:0 4px 14px rgba(124,58,237,.28); }
+  .btn:disabled { background:#c9b6f3; cursor:default; box-shadow:none; }
+  .btn.copied { background:#0a7d3f; }
+  .actions { margin-top:20px; display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
+  .linklike { background:none; border:none; color:var(--muted); text-decoration:underline; font-size:12px; cursor:pointer; padding:0; font-weight:400; }
+
+  .invalid { border-color:var(--purple) !important; }
+  input.invalid { border-color:#e11d48 !important; }
+  .ferr { color:#e11d48; font-size:11px; margin-top:4px; min-height:0; }
+  .formerr { color:#e11d48; font-size:12.5px; margin-top:12px; min-height:16px; }
+
+  /* Generated link: revealed below the button, no separate rail. */
+  .out { margin-top:20px; border:1px solid var(--border); border-radius:12px; background:#f8fafb; max-height:0; opacity:0; overflow:hidden; padding:0 16px; transition:max-height .3s ease, opacity .3s ease, padding .3s ease; }
+  .out.show { max-height:320px; opacity:1; padding:16px; }
+  .done { display:inline-flex; align-items:center; gap:7px; font-size:12px; font-weight:700; color:#0a7d3f; background:#e8f7ee; border-radius:999px; padding:4px 11px; margin-bottom:12px; }
+  .linkbox { display:flex; gap:8px; margin:4px 0 6px; }
+  .linkbox input { background:#fff; font-size:12px; }
+  .linkbox .btn { padding:10px 16px; white-space:nowrap; box-shadow:none; }
+  .hint { font-size:11px; color:var(--muted); line-height:1.5; }
+
+  /* Write-token gate (only shown if the server requires a token). */
+  .gate { position:fixed; inset:0; background:rgba(15,23,42,.4); display:none; align-items:center; justify-content:center; padding:20px; z-index:200; }
   .gate.show { display:flex; }
   .gcard { background:#fff; border-radius:var(--radius-lg); padding:28px; max-width:360px; width:100%; text-align:center; box-shadow:var(--shadow-modal); }
-  .glogo { width:52px; height:52px; border-radius:14px; background:var(--teal); color:#fff; display:inline-flex; align-items:center; justify-content:center; font-weight:800; font-size:22px; margin-bottom:14px; }
-  .gcard h2 { font-size:16px; margin:0 0 4px; }
+  .glogo { width:52px; height:52px; border-radius:50%; background:var(--purple-soft); display:inline-flex; align-items:center; justify-content:center; margin-bottom:14px; }
+  .glogo img { width:30px; height:30px; }
+  .gcard h2 { font-size:16px; margin:0 0 4px; color:var(--teal); }
   .gcard p { font-size:12.5px; color:var(--muted); margin:0 0 16px; line-height:1.5; }
   .gcard input { margin-bottom:10px; }
-  .gerr { color:var(--cherry); font-size:12px; margin-bottom:10px; min-height:16px; }
-  .gcard .primary { width:100%; background:var(--teal); }
-  @media (max-width:560px){ .row{flex-direction:column; gap:0;} .wrap{margin:16px auto; padding:0 14px;} .card{padding:18px;} }
+  .gerr { color:#e11d48; font-size:12px; margin-bottom:10px; min-height:16px; }
+  .gcard .btn { width:100%; }
+
+  @media (max-width:620px){
+    .how { flex-direction:column; }
+    .row { flex-direction:column; gap:0; }
+    .wrap { margin:16px auto; }
+    .card { padding:18px; }
+  }
 </style>
 </head>
 <body>
-  <div class="bar">Lumen Onboarding</div>
+  <div class="top">
+    <div class="mark"><img src="/lumen-mark.png" alt=""/></div>
+    <div class="brand"><b>Lumen</b> <span class="by">by Talkwalker</span></div>
+    <div class="role">Internal — Sales</div>
+  </div>
+
   <div class="wrap">
+    <div class="lead"><h1>Create a client onboarding link</h1></div>
+
+    <div class="how">
+      <div class="step"><div class="n">1</div><h4>You prep the link</h4><p>Add the client's basics and any context. Notes shape the assistant but stay internal.</p></div>
+      <div class="step"><div class="n">2</div><h4>Client does the chat</h4><p>A ~15-min guided conversation, in their language. They can pause and resume anytime.</p></div>
+      <div class="step"><div class="n">3</div><h4>The team takes over</h4><p>Their setup brief goes straight to your onboarding team, who follow up from there.</p></div>
+    </div>
+
     <div class="card">
-      <h1>Generate a client onboarding link</h1>
-      <p class="sub">Pre-fill what you know. The client opens the link and completes the rest in a short guided chat.</p>
+      <h3>Client details</h3>
+      <p class="csub">Only Company and Contact are required. Everything else pre-fills the chat.</p>
 
-      <div class="section first">Client</div>
-
+      <div class="sec">Client</div>
       <label>Company <span class="opt">(required)</span></label>
       <input id="company" placeholder="Acme Corp"/>
       <div class="ferr" id="err_company"></div>
@@ -105,9 +147,7 @@
         <div>
           <label>Chat language <span class="opt">(optional)</span></label>
           <!-- Only languages the chat can actually render (UI_LANGS in src/lumen.jsx).
-               Portuguese/Dutch were listed here but unsupported: the client was
-               promised their language and then got an all-English chat. Add a
-               language to the chat's I18N/WI18N tables BEFORE adding it here. -->
+               Add a language to the chat's I18N/WI18N tables BEFORE adding it here. -->
           <select id="language">
             <option>English</option>
             <option>French</option>
@@ -119,48 +159,50 @@
         </div>
       </div>
 
-      <div class="section">Internal (never shown to the client)</div>
+      <div class="sec">Internal — never shown to the client</div>
 
-      <label>Prepared by <span class="opt">(your name; remembered on this device, shown to Proserv on the dashboard)</span></label>
+      <label>Prepared by <span class="opt">(your name; remembered on this device)</span></label>
       <input id="preparedBy" placeholder="Your name"/>
 
-      <label>Consultant notes <span class="opt">(optional)</span></label>
-      <textarea id="notes" rows="3" placeholder="Enterprise tier. Main interest is competitive intelligence; key competitor is Nike."></textarea>
-      <div class="hint">Used to prepare the client's session: tier, priorities, key competitors, anything the assistant should know going in.</div>
+      <label style="margin-top:14px;">Notes for the onboarding team <span class="opt">(optional)</span></label>
+      <div class="notewrap">
+        <div class="cap">Shapes the assistant · never shown to the client</div>
+        <textarea id="notes" rows="3" placeholder="Tier, priorities, key competitors, anything the team should know going in."></textarea>
+        <div class="chips">
+          <button type="button" class="chip" data-add="Tier: ">+ Tier / plan</button>
+          <button type="button" class="chip" data-add="Main use case: ">+ Main use case</button>
+          <button type="button" class="chip" data-add="Key competitors: ">+ Key competitors</button>
+          <button type="button" class="chip" data-add="Migrating from: ">+ Migrating from…</button>
+        </div>
+      </div>
 
       <div class="actions">
-        <button class="primary" id="gen">Generate link</button>
+        <button class="btn" id="gen">Generate link</button>
+        <button type="button" class="linklike" id="example">Fill with example data</button>
       </div>
       <div class="formerr" id="formErr"></div>
-      <button type="button" class="linklike" id="example">Fill with example data</button>
 
       <div class="out" id="out">
-        <div style="font-weight:700; font-size:13px;">Client link ready</div>
+        <div class="done">✓ Link ready</div>
+        <label style="margin:0 0 5px;">Client link</label>
         <div class="linkbox">
           <input id="link" readonly/>
-          <button class="primary" id="copy" style="white-space:nowrap;">Copy</button>
+          <button class="btn" id="copy">Copy</button>
         </div>
-        <div class="hint">Send this to the client. The link carries only an opaque id; your notes are stored securely for the consultant and are never included in the link or shown to the client.</div>
-
-        <!-- Pre-work checklist (Erin's TAM/EM/IC toolkit ask): generated with the
-             link and personalized from the form, so it never drifts out of sync
-             with what the assistant actually asks. English v1; translate as needed. -->
-        <div class="pwhead">Pre-work checklist <span class="opt">(paste into your prep email; English, translate if needed)</span></div>
-        <textarea id="prework" readonly rows="15"></textarea>
-        <div style="margin-top:8px;"><button class="primary" id="copyPrework">Copy checklist</button></div>
+        <div class="hint">Carries only an opaque id. Your notes stay server-side, never in the link. Send it to your client to start their onboarding.</div>
       </div>
     </div>
   </div>
 
-  <!-- E1-consistency: styled write-token card, replaces window.prompt(). -->
+  <!-- Write-token gate: styled card instead of window.prompt(). -->
   <div class="gate" id="wtGate">
     <form class="gcard" id="wtForm">
-      <div class="glogo">L</div>
+      <div class="glogo"><img src="/lumen-mark.png" alt=""/></div>
       <h2>Sales write token</h2>
       <p id="wtMsg">Enter the Sales write token to generate client links.</p>
       <input id="wtInput" type="password" autocomplete="current-password" placeholder="Write token" aria-label="Sales write token"/>
       <div class="gerr" id="wtErr"></div>
-      <button type="submit" class="primary">Continue</button>
+      <button type="submit" class="btn">Continue</button>
       <button type="button" id="wtCancel" class="linklike" style="display:block;margin:10px auto 0">Cancel</button>
     </form>
   </div>
@@ -177,12 +219,10 @@
   var SEED_ENDPOINT = "/.netlify/functions/seed";
 
   // Optional write token, only needed if SEED_WRITE_TOKEN is set on the Netlify
-  // site. We do not bake a secret into this page: instead we send whatever token
-  // the consultant has entered (cached for the tab) and, if the server says 401,
+  // site. We do not bake a secret into this page: we send whatever token the
+  // consultant has entered (cached for the tab) and, if the server says 401,
   // prompt once and retry. Same pattern the dashboard uses for its read token.
   function writeToken() { return sessionStorage.getItem("sales_write_token") || ""; }
-  // E1-consistency: a styled card instead of window.prompt(). Returns a Promise
-  // resolving true when a token is submitted (and stored), false on cancel.
   var _wtResolve = null;
   function askWriteToken(msg) {
     $("wtMsg").textContent = msg || "Enter the Sales write token to generate client links.";
@@ -200,6 +240,7 @@
     _wtClose(true);
   });
   $("wtCancel").addEventListener("click", function () { _wtClose(false); });
+
   function postSeed(seed) {
     return fetch(SEED_ENDPOINT, {
       method: "POST",
@@ -213,12 +254,13 @@
     $("gen").disabled = !ok;
     return ok;
   }
+
   async function generate() {
     $("formErr").textContent = "";
     var company = $("company").value.trim();
     var contactName = $("contactName").value.trim();
-    // Inline validation (D3), no alert(). Generate is disabled until both are
-    // present; this backstop also marks the offending field.
+    // Inline validation, no alert(). Generate is disabled until both are present;
+    // this backstop also marks the offending field.
     if (!company) { $("company").classList.add("invalid"); $("err_company").textContent = "Company is required."; }
     if (!contactName) { $("contactName").classList.add("invalid"); $("err_contactName").textContent = "Contact name is required."; }
     if (!company || !contactName) return;
@@ -246,9 +288,8 @@
       var data = await res.json().catch(function () { return {}; });
       if (!res.ok || !data.id) { $("formErr").textContent = "Could not generate the link. Please try again."; return; }
       $("link").value = CHAT_BASE + "?s=" + encodeURIComponent(data.id);
-      $("prework").value = buildPrework(company);
       $("out").classList.add("show");
-      setTimeout(function () { try { $("link").select(); } catch (e) {} }, 350); // D2: auto-select after the reveal
+      setTimeout(function () { try { $("link").select(); } catch (e) {} }, 350); // auto-select after the reveal
     } catch (e) {
       $("formErr").textContent = "Could not reach the server to generate the link. Please try again.";
     } finally {
@@ -260,7 +301,7 @@
     $("company").value = "Acme Corp";
     $("contactName").value = "Jane Smith";
     $("email").value = "jane@acmecorp.com";
-    $("industry").value = "Consumer goods — footwear and apparel";
+    $("industry").value = "Consumer goods, footwear and apparel";
     $("notes").value = "Enterprise tier. Main interest is competitive intelligence; key competitor is Nike.";
     $("out").classList.remove("show"); // programmatic fill doesn't fire input events, so clear any stale link here too
     $("company").classList.remove("invalid"); $("contactName").classList.remove("invalid");
@@ -268,11 +309,10 @@
     checkValid();
   }
 
-  // Shared copy affordance (link + pre-work checklist). A failed copy must not
-  // look like a success: clipboard access can be denied (permissions, unfocused
-  // window) or unavailable (non-secure context, older embedded webviews). Fall
-  // back to execCommand, and if that fails too, say so — otherwise the consultant
-  // pastes whatever was on the clipboard into an email.
+  // Copy affordance for the link. A failed copy must not look like a success:
+  // clipboard access can be denied (permissions, unfocused window) or unavailable
+  // (non-secure context, older webviews). Fall back to execCommand, and if that
+  // fails too, say so, otherwise the consultant pastes whatever was on the clipboard.
   function bindCopy(elId, btnId) {
     var el = $(elId), b = $(btnId), idle = b.textContent;
     function ok() { b.textContent = "Copied ✓"; b.classList.add("copied"); setTimeout(function () { b.textContent = idle; b.classList.remove("copied"); }, 1500); }
@@ -295,27 +335,22 @@
     });
   }
 
-  // Personalized pre-work checklist, generated alongside the link so it can't
-  // drift from what the assistant actually asks. Mirrors the flow: goal, products,
-  // competitors + noise, markets, teams, channels, existing queries, users.
-  function buildPrework(company) {
-    var c = company || "your company";
-    return "Ahead of your Lumen onboarding session, there's no need to prepare a formal document. Our onboarding assistant walks you through everything live and builds your setup brief as you go. It just helps to have a rough, informal list on hand (a notes doc or a copy-paste list, no formatting needed) covering:\n\n" +
-      "1. Your goals for the tool\n" +
-      "2. " + c + " product or service names you want tracked beyond the brand itself\n" +
-      "3. Competitors, plus any other brands or terms that create noise around " + c + " (similar names, different context)\n" +
-      "4. Key markets and regions you operate in\n" +
-      "5. Functions or departments who will use Lumen\n" +
-      "6. Critical channels to monitor (X, Reddit, specific news sites or blogs, etc.) and " + c + "'s own social handles\n" +
-      "7. Any existing queries, topic lists, or keyword lists from your previous tool, if handy (we use them as reference, not a straight recreation)\n" +
-      "8. Anyone who needs Lumen access right away\n\n" +
-      "Already have some of this written down? You can attach the document directly in the chat (paperclip button; .txt, .csv, .xlsx or .docx) and the assistant will use it so you don't repeat yourself.";
-  }
-
   $("gen").addEventListener("click", generate);
   $("example").addEventListener("click", fillExample);
   bindCopy("link", "copy");
-  bindCopy("prework", "copyPrework");
+
+  // Notes shortcut chips: append a labelled line to the notes field so reps fill
+  // it in a consistent shape. Doesn't overwrite anything they've already typed.
+  Array.prototype.forEach.call(document.querySelectorAll(".chip"), function (chip) {
+    chip.addEventListener("click", function () {
+      var t = $("notes"), add = chip.getAttribute("data-add");
+      var cur = t.value.replace(/\s+$/, "");
+      t.value = (cur ? cur + "\n" : "") + add;
+      t.focus();
+      try { t.setSelectionRange(t.value.length, t.value.length); } catch (e) {}
+      $("out").classList.remove("show");
+    });
+  });
 
   // Clear a stale link the moment the form is edited, so a consultant can never
   // copy a link that points to a different client's seed than what's on screen.
@@ -326,7 +361,7 @@
     el.addEventListener("change", function () { $("out").classList.remove("show"); });
   });
 
-  // D3: clear a field's error as it's corrected and keep Generate's enabled state
+  // Clear a field's error as it's corrected and keep Generate's enabled state
   // in sync with the two required fields.
   ["company", "contactName"].forEach(function (id) {
     $(id).addEventListener("input", function () {
