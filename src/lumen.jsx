@@ -850,15 +850,11 @@ function useAudio() {
   return { init, pop, chime };
 }
 
-function LumenIcon({ size=28, inverse=false }) {
-  // Mark-less: a plain solid disc, NO glyph. The real Lumen logo is not
-  // reproduced here (an imperfect copy of a real brand mark is worse than none);
-  // the product runs on the "Lumen by Talkwalker" wordmark. This disc is only a
-  // neutral avatar/stand-in where a small shape is structurally needed (message
-  // avatars, the returning-client hero). Two-tone so it reads on either bg.
-  const fill = inverse ? "#EDE7FB" : A;
-  return <svg width={size} height={size} viewBox="0 0 32 32" fill="none"><rect width="32" height="32" rx="16" fill={fill}/></svg>;
-}
+// No logo/brand mark is rendered anywhere: the product runs on the "Lumen by
+// Talkwalker" wordmark alone (an imperfect reproduction of a real logo was
+// rejected, and no official asset is wired in yet). If a real asset is added
+// later, reintroduce a mark component here and place it in the header + message
+// rows.
 function Spinner({ dark=false }) {
   const faint = dark ? "rgba(100,116,139,0.25)" : "rgba(255,255,255,0.3)", solid = dark ? "#64748b" : "white";
   return <svg width="18" height="18" viewBox="0 0 18 18" fill="none" style={{animation:"spin 0.8s linear infinite"}}><circle cx="9" cy="9" r="7" stroke={faint} strokeWidth="2"/><path d="M9 2a7 7 0 0 1 7 7" stroke={solid} strokeWidth="2" strokeLinecap="round"/></svg>;
@@ -873,7 +869,6 @@ function Spinner({ dark=false }) {
 function BootScreen({ label = "Setting up your session…" }) {
   return <div style={{height:VH_FULL,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:16,fontFamily:"'Inter', Arial, sans-serif",background:"#fff"}}>
     <style>{"@keyframes spin{to{transform:rotate(360deg)}}"}</style>
-    <div aria-hidden="true" style={{width:64,height:64,borderRadius:18,background:A,boxShadow:"0 8px 24px rgba(126,72,236,0.25)"}}/>
     <div style={{display:"flex",alignItems:"center",gap:9,color:"#64748b",fontSize:13}}><Spinner dark/> {label}</div>
   </div>;
 }
@@ -2511,10 +2506,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
               <path d="M0,150 C180,60 320,220 480,130 C640,40 760,180 900,90 L900,0 L0,0 Z" fill="url(#lw)"/>
               <path d="M0,190 C220,110 380,240 560,150 C720,70 820,200 900,140" fill="none" stroke="#7C3AED" strokeOpacity="0.18" strokeWidth="2"/>
             </svg>
-            <div style={{position:"relative",display:"flex",alignItems:"center",justifyContent:"center",animation:"slideUpFade .5s ease-out both"}}>
-              <div aria-hidden="true" style={{position:"absolute",width:150,height:150,borderRadius:"50%",background:"radial-gradient(closest-side, rgba(126,72,236,.28), transparent)",animation:"haloPulse 4s ease-in-out infinite",pointerEvents:"none"}}/>
-              <div aria-hidden="true" style={{position:"relative",width:88,height:88,borderRadius:24,background:A,boxShadow:"0 8px 24px rgba(126,72,236,0.25)",animation:"orbBreathe 5s ease-in-out infinite"}}/>
-            </div>
+            <div style={{height:24}}/>
             <h1 style={{margin:"22px 0 8px",color:C.text,fontSize:26,fontWeight:700,animation:"slideUpFade .5s ease-out both",animationDelay:"60ms"}}>{seed?L("welcomeTitleSeeded",uiLang,{name:seed.contactName?.split(" ")[0]||seed.company}):L("welcomeTitle",uiLang)}</h1>
             {seed && <div style={{display:"inline-flex",alignItems:"center",gap:6,margin:"0 0 12px",padding:"5px 13px",borderRadius:999,background:`${A}14`,color:LINK,fontSize:12,fontWeight:600,animation:"slideUpFade .5s ease-out both",animationDelay:"110ms"}}><span aria-hidden="true">✦</span>{L("preparedFor",uiLang,{company:seed.company})}</div>}
             <p style={{color:C.muted,fontSize:14,margin:"0 0 22px",maxWidth:420,lineHeight:1.6,animation:"slideUpFade .5s ease-out both",animationDelay:"150ms"}}>{seed?L("welcomeSubSeeded",uiLang,{company:seed.company}):L("welcomeSub",uiLang)}</p>
@@ -2550,8 +2542,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
 
         {!started && saved && (
           <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",minHeight:380,textAlign:"center"}}>
-            <LumenIcon size={64}/>
-            <h1 style={{margin:"20px 0 8px",color:C.text,fontSize:22,fontWeight:700}}>Welcome back!</h1>
+            <h1 style={{margin:"0 0 8px",color:C.text,fontSize:22,fontWeight:700}}>Welcome back!</h1>
             <p style={{color:C.muted,fontSize:14,margin:"0 0 8px"}}>You have an onboarding session in progress.</p>
             {/* Hide a meaningless "0% complete" — a saved-but-barely-started draft
                 shouldn't greet the client with a zero. */}
@@ -2590,7 +2581,6 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
             <div style={{flex:1,height:1,background:C.border}}/>
           </div>;
           return <div key={i} style={{display:"flex",justifyContent:m.role==="user"?"flex-end":"flex-start",marginBottom:18,animation:m.role==="assistant"?"slideUpFade 0.4s ease-out forwards":"none"}}>
-            {m.role==="assistant" && <div style={{flexShrink:0,marginInlineEnd:10,marginTop:2}}><LumenIcon size={28}/></div>}
             <div style={{maxWidth:m.role==="assistant"?"min(88%, 580px)":"78%"}}>
               {m.content && <div>
                 <div style={{background:m.role==="user"?(m.isWidget?C.hi:C.uBg):(dark?C.card:"#F5F3FB"),border:`1px solid ${m.role==="user"?(m.isWidget?P:C.border):(dark?C.border:"#E5E0F3")}`,color:m.role==="user"?(m.isWidget?C.wTx:C.uTx):C.text,borderRadius:uiLang==="Arabic"?14:(m.role==="assistant"?"4px 14px 14px 14px":"14px 4px 14px 14px"),padding:"11px 15px",fontSize:14,lineHeight:1.7,boxShadow:m.role==="assistant"?"0 1px 3px rgba(1,43,58,0.06)":"none"}}>
@@ -2621,14 +2611,12 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
           {last.quickReplies.map((qr,idx) => <button key={idx} onClick={()=>sendMsg(qr,qr)} style={{background:"transparent",border:`1px solid ${LINK}`,color:LINK,borderRadius:16,padding:"6px 14px",fontSize:13,cursor:"pointer",fontWeight:600}}>{qr}</button>)}
         </div>}
         {loading && <div role="status" aria-live="polite" aria-label={L("thinking",uiLang)} style={{display:"flex",justifyContent:"flex-start",marginBottom:18,animation:"slideUpFade 0.3s ease-out forwards"}}>
-          <div style={{flexShrink:0,marginInlineEnd:10,marginTop:2}}><LumenIcon size={28}/></div>
           <div style={{background:dark?C.card:"#F5F3FB",border:`1px solid ${dark?C.border:"#E5E0F3"}`,borderRadius:14,padding:"14px 18px",maxWidth:"88%",boxShadow:"0 1px 3px rgba(1,43,58,0.06)"}}>
             <TypingIndicator lang={uiLang}/>
           </div>
         </div>}
 
         {retryMsg && !loading && <div style={{display:"flex",justifyContent:"flex-start",marginBottom:18,animation:"slideUpFade 0.3s ease-out forwards"}}>
-          <div style={{flexShrink:0,marginInlineEnd:10,marginTop:2}}><LumenIcon size={28}/></div>
           <div style={{background:dark?"#3a2f1a":"#fffbeb",border:`1px solid ${dark?"#5c4a24":"#fde68a"}`,borderRadius:12,padding:"12px 16px",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#d97706" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{flexShrink:0}}><path d="M1 1l22 22 M16.72 11.06A10.94 10.94 0 0 1 19 12.55 M5 12.55a10.94 10.94 0 0 1 5.17-2.39 M10.71 5.05A16 16 0 0 1 22.58 9 M1.42 9a15.91 15.91 0 0 1 4.7-2.88 M8.53 16.11a6 6 0 0 1 6.95 0 M12 20h.01"/></svg>
             <span style={{fontSize:13,color:dark?"#e8d9b5":"#92400e"}}>{L("retryFail",uiLang)}</span>
@@ -2637,7 +2625,6 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
         </div>}
 
         {initErr && !loading && <div style={{display:"flex",justifyContent:"flex-start",marginBottom:18,animation:"slideUpFade 0.3s ease-out forwards"}}>
-          <div style={{flexShrink:0,marginInlineEnd:10,marginTop:2}}><LumenIcon size={28}/></div>
           <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"14px 18px",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
             <span style={{fontSize:13,color:C.muted}}>{L("initErrMsg",uiLang)}</span>
             <button onClick={()=>{ const t=initErr; setInitErr(null); t==="resume"?resumeConvo():startConvo(); }} style={{background:P,color:"white",border:"none",borderRadius:7,padding:"6px 14px",fontSize:12,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>{L("tryAgain",uiLang)}</button>
