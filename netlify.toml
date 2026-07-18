@@ -13,17 +13,6 @@
   publish = "dist"
   functions = "netlify/functions"
 
-# Give the synchronous chat proxy room to finish a reply. The proxy is
-# non-streaming, so the whole model reply must generate inside this window; the
-# default (~10s) killed heavy turns (the final summary/handoff) mid-generation
-# and the client saw "That didn't go through". Pinned here so it does not depend
-# on the manual Netlify UI toggle. 26s is the platform max; the code self-aborts
-# upstream at 24s (chat.js) to return a clean error just inside it. On a plan
-# that caps below 26s this value is clamped/ignored, which is why the prompt-side
-# token cuts are the primary fix, not this line.
-[functions]
-  timeout = 26
-
 # Friendly paths (optional): /chat, /sales, /dashboard instead of *.html
 [[redirects]]
   from = "/chat"
