@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='16' fill='%237E48EC'/%3E%3Cg stroke='%23ffffff' stroke-width='2.6' stroke-linecap='round'%3E%3Cline x1='6' y1='12' x2='6' y2='20'/%3E%3Cline x1='11' y1='8.5' x2='11' y2='23.5'/%3E%3Cline x1='16' y1='5.5' x2='16' y2='26.5'/%3E%3Cline x1='21' y1='8.5' x2='21' y2='23.5'/%3E%3Cline x1='26' y1='12' x2='26' y2='20'/%3E%3C/g%3E%3C/svg%3E"/>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%237E48EC'/%3E%3Cpath d='M16 6V26M6 16H26M9 9L23 23M23 9L9 23' stroke='%23ffffff' stroke-width='2.4' stroke-linecap='round'/%3E%3Ccircle cx='16' cy='16' r='4' fill='%23ffffff'/%3E%3C/svg%3E"/>
 <!-- Preload Inter before the JS bundle parses so the client never sees the Arial
      fallback flash-then-reflow. display=swap keeps text visible while it loads. -->
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
@@ -21,7 +21,7 @@
 <body style="margin:0">
 <!-- Splash lives inside #root; React replaces it on first commit, so there is no
      blank-white beat while the bundle loads on a slow client connection. -->
-<div id="root"><div id="boot"><div class="orb"><svg width="38" height="38" viewBox="0 0 32 32" fill="none"><g stroke="#fff" stroke-width="2.6" stroke-linecap="round"><line x1="6" y1="12" x2="6" y2="20"/><line x1="11" y1="8.5" x2="11" y2="23.5"/><line x1="16" y1="5.5" x2="16" y2="26.5"/><line x1="21" y1="8.5" x2="21" y2="23.5"/><line x1="26" y1="12" x2="26" y2="20"/></g></svg></div><div class="lbl">Loading your session…</div></div></div>
+<div id="root"><div id="boot"><div class="orb"><svg width="38" height="38" viewBox="0 0 32 32" fill="none"><rect width="32" height="32" rx="8" fill="#7E48EC"/><path d="M16 6V26M6 16H26M9 9L23 23M23 9L9 23" stroke="#fff" stroke-width="2.6" stroke-linecap="round"/><circle cx="16" cy="16" r="4" fill="#fff"/></svg></div><div class="lbl">Loading your session…</div></div></div>
 <script type="module" src="/chat-main.js"></script>
 </body>
 </html>
