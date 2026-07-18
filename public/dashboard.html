@@ -64,6 +64,10 @@
   .chip { display:inline-block; margin-left:6px; padding:1px 8px; border-radius:20px; font-size:9.5px; font-weight:700; background:var(--purple-soft); color:var(--purple); vertical-align:middle; }
   .rep a { color:#0b6b3a; font-weight:700; text-decoration:underline; font-size:12px; }
   .rep .ho { font-size:11px; color:var(--muted); }
+  /* Standalone "handoff ready" (no Sheet yet): the row opens the detail, so make
+     it read as an action, not a dead label. */
+  .rep .hoff { color:var(--purple); font-weight:700; text-decoration:underline; font-size:12px; cursor:pointer; }
+  tr.row:hover .rep .hoff { text-decoration:none; }
   .rep .none { color:var(--muted); }
   .note { font-size:11px; color:var(--muted); margin:14px 2px 0; line-height:1.5; }
   .filters { display:flex; gap:14px; align-items:center; margin-bottom:14px; flex-wrap:wrap; }
@@ -402,7 +406,7 @@
     var url = safeUrl(s.sheetUrl);
     var rep = url
       ? '<a href="' + esc(url) + '" target="_blank" rel="noopener noreferrer" data-link="1">Open Sheet ⤓</a>' + (s.hasHandoff ? '<div class="ho">+ handoff</div>' : "")
-      : (s.hasHandoff ? '<span class="ho">Handoff ready</span>' : '<span class="none">—</span>');
+      : (s.hasHandoff ? '<span class="hoff">View handoff →</span>' : '<span class="none">—</span>');
     var tok = totalTokens(s.tokens);
     return '<tr class="row"' + (s._linkSent ? ' data-noopen="1"' : '') + ' data-id="' + esc(s.id) + '">' +
       '<td><strong>' + esc(s.company) + '</strong>' + (s.seeded && !s._linkSent ? '<span class="chip">seeded</span>' : "") +
