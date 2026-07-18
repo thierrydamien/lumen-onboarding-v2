@@ -851,9 +851,17 @@ function useAudio() {
 }
 
 function LumenIcon({ size=28, inverse=false }) {
-  const sw = size>=48?2.8:2.2, cr = size>=48?5:3.5;
-  const tile = inverse?"#ffffff":A, mark = inverse?A:"#ffffff";
-  return <svg width={size} height={size} viewBox="0 0 32 32" fill="none"><rect width="32" height="32" rx="8" fill={tile}/><path d="M16 6L16 26M6 16L26 16M9 9L23 23M23 9L9 23" stroke={mark} strokeWidth={sw} strokeLinecap="round"/><circle cx="16" cy="16" r={cr} fill={mark}/></svg>;
+  // Waveform mark (5 rounded bars) on a round disc. Two modes preserve contrast:
+  // default = purple disc + white bars (sits on the light chat bg: header,
+  // message avatars); inverse = light-lavender disc + purple bars (sits inside
+  // the purple welcome/boot orb, and is the brand logo lockup).
+  const tile = inverse ? "#EDE7FB" : A, mark = inverse ? A : "#ffffff";
+  const sw = size >= 48 ? 3 : 2.6;
+  const bars = [[6,12,20],[11,8.5,23.5],[16,5.5,26.5],[21,8.5,23.5],[26,12,20]];
+  return <svg width={size} height={size} viewBox="0 0 32 32" fill="none">
+    <rect width="32" height="32" rx="16" fill={tile}/>
+    {bars.map(([x,y1,y2],i) => <line key={i} x1={x} y1={y1} x2={x} y2={y2} stroke={mark} strokeWidth={sw} strokeLinecap="round"/>)}
+  </svg>;
 }
 function Spinner({ dark=false }) {
   const faint = dark ? "rgba(100,116,139,0.25)" : "rgba(255,255,255,0.3)", solid = dark ? "#64748b" : "white";
