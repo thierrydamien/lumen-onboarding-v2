@@ -857,6 +857,16 @@ function useAudio() {
 function OwlAvatar({ size=28 }) {
   return <img src="/Owly-Logo-Cherry.png" alt="" width={size} height={size} style={{display:"block",flexShrink:0}}/>;
 }
+// Lumen product mark: the real waveform asset (public/lumen-mark.png) on a soft
+// lavender disc, matching the brand lockup the client showed. Used on the "main
+// page" — the header and the welcome hero. (The chat's assistant avatar uses the
+// Hootsuite Owly instead, per the brand split.)
+function LumenMark({ size=32 }) {
+  const inner = Math.round(size * 0.6);
+  return <div style={{width:size,height:size,borderRadius:"50%",background:"#EDE7FB",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+    <img src="/lumen-mark.png" alt="Lumen" width={inner} height={inner} style={{display:"block"}}/>
+  </div>;
+}
 function Spinner({ dark=false }) {
   const faint = dark ? "rgba(100,116,139,0.25)" : "rgba(255,255,255,0.3)", solid = dark ? "#64748b" : "white";
   return <svg width="18" height="18" viewBox="0 0 18 18" fill="none" style={{animation:"spin 0.8s linear infinite"}}><circle cx="9" cy="9" r="7" stroke={faint} strokeWidth="2"/><path d="M9 2a7 7 0 0 1 7 7" stroke={solid} strokeWidth="2" strokeLinecap="round"/></svg>;
@@ -871,6 +881,7 @@ function Spinner({ dark=false }) {
 function BootScreen({ label = "Setting up your session…" }) {
   return <div style={{height:VH_FULL,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:16,fontFamily:"'Inter', Arial, sans-serif",background:"#fff"}}>
     <style>{"@keyframes spin{to{transform:rotate(360deg)}}"}</style>
+    <LumenMark size={56}/>
     <div style={{display:"flex",alignItems:"center",gap:9,color:"#64748b",fontSize:13}}><Spinner dark/> {label}</div>
   </div>;
 }
@@ -2458,6 +2469,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
       {/* Header */}
       <div style={{background:C.card,borderBottom:`1px solid ${C.border}`,padding:mob?"8px 12px":"0 24px",display:"flex",alignItems:"center",justifyContent:"space-between",minHeight:56,height:mob?"auto":56,flexWrap:mob?"wrap":"nowrap",gap:mob?6:0,flexShrink:0}}>
         <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <LumenMark size={32}/>
           <div>
             <div style={{display:"flex",alignItems:"center",gap:8}}>
               <span style={{display:"inline-flex",flexDirection:"column",lineHeight:1.05}}>
@@ -2508,7 +2520,10 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
               <path d="M0,150 C180,60 320,220 480,130 C640,40 760,180 900,90 L900,0 L0,0 Z" fill="url(#lw)"/>
               <path d="M0,190 C220,110 380,240 560,150 C720,70 820,200 900,140" fill="none" stroke="#7C3AED" strokeOpacity="0.18" strokeWidth="2"/>
             </svg>
-            <div style={{height:24}}/>
+            <div style={{position:"relative",display:"flex",alignItems:"center",justifyContent:"center",marginBottom:4,animation:"slideUpFade .5s ease-out both"}}>
+              <div aria-hidden="true" style={{position:"absolute",width:150,height:150,borderRadius:"50%",background:"radial-gradient(closest-side, rgba(126,72,236,.22), transparent)",animation:"haloPulse 4s ease-in-out infinite",pointerEvents:"none"}}/>
+              <div style={{position:"relative",animation:"orbBreathe 5s ease-in-out infinite"}}><LumenMark size={84}/></div>
+            </div>
             <h1 style={{margin:"22px 0 8px",color:C.text,fontSize:26,fontWeight:700,animation:"slideUpFade .5s ease-out both",animationDelay:"60ms"}}>{seed?L("welcomeTitleSeeded",uiLang,{name:seed.contactName?.split(" ")[0]||seed.company}):L("welcomeTitle",uiLang)}</h1>
             {seed && <div style={{display:"inline-flex",alignItems:"center",gap:6,margin:"0 0 12px",padding:"5px 13px",borderRadius:999,background:`${A}14`,color:LINK,fontSize:12,fontWeight:600,animation:"slideUpFade .5s ease-out both",animationDelay:"110ms"}}><span aria-hidden="true">✦</span>{L("preparedFor",uiLang,{company:seed.company})}</div>}
             <p style={{color:C.muted,fontSize:14,margin:"0 0 22px",maxWidth:420,lineHeight:1.6,animation:"slideUpFade .5s ease-out both",animationDelay:"150ms"}}>{seed?L("welcomeSubSeeded",uiLang,{company:seed.company}):L("welcomeSub",uiLang)}</p>
@@ -2544,7 +2559,8 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
 
         {!started && saved && (
           <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",minHeight:380,textAlign:"center"}}>
-            <h1 style={{margin:"0 0 8px",color:C.text,fontSize:22,fontWeight:700}}>Welcome back!</h1>
+            <LumenMark size={64}/>
+            <h1 style={{margin:"20px 0 8px",color:C.text,fontSize:22,fontWeight:700}}>Welcome back!</h1>
             <p style={{color:C.muted,fontSize:14,margin:"0 0 8px"}}>You have an onboarding session in progress.</p>
             {/* Hide a meaningless "0% complete" — a saved-but-barely-started draft
                 shouldn't greet the client with a zero. */}
