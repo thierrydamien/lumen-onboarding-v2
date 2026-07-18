@@ -56,17 +56,19 @@ Function timeout (fixes the "didn't go through" failures on long replies): the
 chat proxy is non-streaming, so the model's whole reply must be generated inside
 the function's execution window. Netlify's default synchronous timeout is ~10
 seconds; a longer reply (the final summary/handoff turn, big imports) gets the
-function KILLED mid-generation and the client sees the retry banner. This is now
-pinned in version control: netlify.toml sets [functions] timeout = 26 (the 26s
-platform maximum), so no manual UI step is needed. NOTE: a plan that caps
-synchronous functions below 26s will clamp/ignore that value, so it is not the
-sole fix. The primary fix is prompt-side: the final turn no longer stacks the
+function KILLED mid-generation and the client sees the retry banner. The primary
+fix is prompt-side and needs no config: the final turn no longer stacks the
 summary, the first handoff, a full <thought>, and a re-emit of every marker onto
 one reply (data markers are emitted only when their values change; the handoff
 lands once at STEP 7; <thought> is one line on the summary/closing turns), which
 cuts that turn from ~1400 to ~600 output tokens so it finishes well inside even a
 10s window. The code side is also matched: the token ceiling is 2000 and the
 proxy self-aborts upstream at 24s with a clean error the client can retry.
+NOTE: the function timeout is NOT settable in netlify.toml — Netlify rejects a
+`timeout` key under [functions] ("functions.timeout must be an object") and the
+build fails. If you want the extra headroom (up to the 26s max) and are on a plan
+that allows it, raise it in the Netlify UI: Site configuration > Functions >
+Function timeout. It is optional — the prompt-side cuts carry the fix on their own.
 
 Note: /dashboard and /sales carry noindex but are NOT access-gated in code. Put
 them behind Netlify password protection or Identity before real-client use.
