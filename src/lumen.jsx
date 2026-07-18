@@ -923,23 +923,34 @@ function TypingIndicator({ lang }) {
 }
 function Stepper({ progress, dark, compact, lang }) {
   const inactive = dark?"#2d4a6a":"#E7E7EF", muted = dark?"#8aa4c1":"#64748b", F = A, circleBg = dark?"#111f30":"#ffffff";
+  // Onboarding is linear, but the model's `collected` map can arrive
+  // non-monotonic (e.g. "channels" marked done before "topics"), which drew
+  // checkmarks with gaps — a step 4 tick with step 3 still open. Derive a single
+  // "frontier": the furthest section reached (current section or the last one
+  // collected). Everything up to it reads done, the frontier is current, the rest
+  // pending — so the row can never have a hole regardless of what the model sends.
+  const curIdx = SECTION_KEYS.indexOf(progress.section);
+  const collectedMax = SECTION_KEYS.reduce((m,k,i)=> progress.collected?.[k] ? i : m, -1);
+  const frontier = Math.max(curIdx, collectedMax, 0);
+  const isDone = i => i < frontier || (i === frontier && !!progress.collected?.[SECTION_KEYS[i]]);
+  const isCur  = i => i === frontier && !isDone(i);
   // Mobile (C7): a six-dot row is cramped on a phone. Collapse to one clear
   // "Step N of 6 · Label" line plus a thin fill bar.
   if (compact) {
-    const idx = Math.max(0, SECTION_KEYS.indexOf(progress.section));
-    const doneCount = SECTION_KEYS.filter(k=>progress.collected?.[k]).length;
-    const total = SECTION_KEYS.length, pct = Math.round((doneCount/total)*100);
-    const label = L(SECTION_LABEL_KEYS[progress.section], lang) || "";
+    const total = SECTION_KEYS.length;
+    const doneCount = SECTION_KEYS.reduce((n,_,i)=> isDone(i)?n+1:n, 0);
+    const pct = Math.round((doneCount/total)*100);
+    const label = L(SECTION_LABEL_KEYS[SECTION_KEYS[frontier]], lang) || "";
     return <div style={{width:"100%"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:6}}>
-        <span style={{fontSize:12,fontWeight:700,color:dark?"#c8d8e8":P}}>{L("stepN",lang,{n:idx+1,total})}{label?" · ":""}<span style={{color:muted,fontWeight:600}}>{label}</span></span>
+        <span style={{fontSize:12,fontWeight:700,color:dark?"#c8d8e8":P}}>{L("stepN",lang,{n:frontier+1,total})}{label?" · ":""}<span style={{color:muted,fontWeight:600}}>{label}</span></span>
         <span style={{fontSize:11,color:muted}}>{pct}%</span>
       </div>
       <div style={{height:4,background:inactive,borderRadius:2,overflow:"hidden"}}><div style={{height:"100%",width:pct+"%",background:F,borderRadius:2,transition:"width 0.4s"}}/></div>
     </div>;
   }
   return <div style={{display:"flex",alignItems:"flex-start",width:"100%"}}>{SECTION_KEYS.map((key,i) => {
-    const done = !!progress.collected?.[key], cur = progress.section === key;
+    const done = isDone(i), cur = isCur(i);
     return <div key={key} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",position:"relative"}}>
       {i < SECTION_KEYS.length-1 && <div style={{position:"absolute",top:11,left:"50%",width:"100%",height:2,background:done?F:inactive,zIndex:0,transition:"background 0.4s"}}/>}
       <div style={{width:22,height:22,borderRadius:"50%",border:`2px solid ${done||cur?F:inactive}`,background:done?F:circleBg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,color:done?"white":cur?F:muted,zIndex:1,transition:"all 0.3s",boxShadow:cur&&!done?`0 0 0 4px ${A}22`:"none"}}>{done?<span style={{display:"inline-flex",animation:REDUCE_MOTION?"none":"popIn .3s ease-out"}}>✓</span>:i+1}</div>
