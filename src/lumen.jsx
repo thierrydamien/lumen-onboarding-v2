@@ -756,7 +756,11 @@ function overstatesCompletion(t) {
   if (/\b(this|it|your setup|the setup|everything) is (live|active|running)\b/i.test(t) && !/\b(once|when|after|as soon as|until)\b/i.test(t)) return true;
   return false;
 }
-function exWid(t) { return [...new Set((t.match(/\[WIDGET:[A-Z_]+\]/g)||[]).map(x => x.replace(/\[WIDGET:|\]/g, "")))]; }
+// PATH is deliberately dropped: STEP 2 routes the client silently (guided vs
+// expert) and the "Guided Setup / Recommendations" chooser was retired. The model
+// is instructed never to emit [WIDGET:PATH], but if it slips we must not render
+// the chooser — so ignore it here regardless of what the model sends.
+function exWid(t) { return [...new Set((t.match(/\[WIDGET:[A-Z_]+\]/g)||[]).map(x => x.replace(/\[WIDGET:|\]/g, "")))].filter(w => w !== "PATH"); }
 function procTopics(t) {
   const s = [];
   // A topic suggestion arrives in two shapes and BOTH must be parsed into cards AND
