@@ -65,6 +65,7 @@
   .btn { border:none; border-radius:10px; padding:12px 22px; font-size:13.5px; font-weight:700; cursor:pointer; background:var(--purple); color:#fff; box-shadow:0 4px 14px rgba(124,58,237,.28); }
   .btn:disabled { background:#c9b6f3; cursor:default; box-shadow:none; }
   .btn.copied { background:#0a7d3f; }
+  .btn.alt { background:#fff; color:var(--purple); border:1px solid #d9cbf7; box-shadow:none; }
   .actions { margin-top:20px; display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
   .linklike { background:none; border:none; color:var(--muted); text-decoration:underline; font-size:12px; cursor:pointer; padding:0; font-weight:400; }
 
@@ -75,12 +76,16 @@
 
   /* Generated link: revealed below the button, no separate rail. */
   .out { margin-top:20px; border:1px solid var(--border); border-radius:12px; background:#f8fafb; max-height:0; opacity:0; overflow:hidden; padding:0 16px; transition:max-height .3s ease, opacity .3s ease, padding .3s ease; }
-  .out.show { max-height:320px; opacity:1; padding:16px; }
+  .out.show { max-height:480px; opacity:1; padding:16px; }
   .done { display:inline-flex; align-items:center; gap:7px; font-size:12px; font-weight:700; color:#0a7d3f; background:#e8f7ee; border-radius:999px; padding:4px 11px; margin-bottom:12px; }
   .linkbox { display:flex; gap:8px; margin:4px 0 6px; }
   .linkbox input { background:#fff; font-size:12px; }
   .linkbox .btn { padding:10px 16px; white-space:nowrap; box-shadow:none; }
+  .outactions { margin-top:10px; }
+  .outactions .btn { padding:9px 16px; font-size:12.5px; }
   .hint { font-size:11px; color:var(--muted); line-height:1.5; }
+  /* Soft, non-blocking duplicate-client heads-up. Amber, informational only. */
+  .dupnote { color:#92400e; background:#fffbeb; border:1px solid #fde68a; border-radius:9px; padding:9px 11px; font-size:11.5px; line-height:1.5; margin-top:10px; }
 
   /* Write-token gate (only shown if the server requires a token). */
   .gate { position:fixed; inset:0; background:rgba(15,23,42,.4); display:none; align-items:center; justify-content:center; padding:20px; z-index:200; }
@@ -113,8 +118,8 @@
     <div class="lead"><h1>Create a client onboarding link</h1></div>
 
     <div class="how">
-      <div class="step"><div class="n">1</div><h4>You prep the link</h4><p>Add the client's basics and any context. Notes shape the assistant but stay internal.</p></div>
-      <div class="step"><div class="n">2</div><h4>Client does the chat</h4><p>A ~15-min guided conversation, in their language. They can pause and resume anytime.</p></div>
+      <div class="step"><div class="n">1</div><h4>You prep the link</h4><p>Add the client's basics and any context. Notes shape the AI assistant but stay internal.</p></div>
+      <div class="step"><div class="n">2</div><h4>Client does the chat</h4><p>A ~15-min guided conversation with an AI assistant, in their language. They can pause and resume anytime.</p></div>
       <div class="step"><div class="n">3</div><h4>The team takes over</h4><p>Their setup brief goes straight to the onboarding team, who follow up from there.</p></div>
     </div>
 
@@ -136,6 +141,7 @@
         <div>
           <label>Contact email <span class="opt">(optional)</span></label>
           <input id="email" placeholder="jane@acmecorp.com"/>
+          <div class="ferr" id="err_email"></div>
         </div>
       </div>
 
@@ -161,8 +167,9 @@
 
       <div class="sec">Internal — never shown to the client</div>
 
-      <label>Prepared by <span class="opt">(your name; remembered on this device)</span></label>
+      <label>Prepared by <span class="opt">(required; remembered on this device)</span></label>
       <input id="preparedBy" placeholder="Your name"/>
+      <div class="ferr" id="err_preparedBy"></div>
 
       <label style="margin-top:14px;">Notes for the onboarding team <span class="opt">(optional)</span></label>
       <div class="notewrap">
@@ -188,7 +195,12 @@
           <input id="link" readonly/>
           <button class="btn" id="copy">Copy</button>
         </div>
-        <div class="hint">Carries only an opaque id. Your notes stay server-side, never in the link. Send it to your client to start their onboarding.</div>
+        <div class="outactions">
+          <button type="button" class="btn alt" id="emailBtn">Email to client</button>
+        </div>
+        <div class="dupnote" id="dupNote" style="display:none;"></div>
+        <div class="hint" id="expiryNote" style="margin-top:10px;"></div>
+        <div class="hint" style="margin-top:6px;">Your internal notes are never part of the link so they stay private to the team. The client just opens it to start their onboarding.</div>
       </div>
     </div>
   </div>
@@ -212,6 +224,13 @@
   var CHAT_BASE = location.origin + "/chat";
 
   var $ = function (id) { return document.getElementById(id); };
+
+  // HTML-escape any value before it goes into innerHTML (duplicate heads-up below).
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
 
   // The seed (including confidential notes) is stored server-side; the client
   // link carries only the opaque id it returns. Notes never travel in the URL.
@@ -249,7 +268,7 @@
   }
 
   function checkValid() {
-    var ok = !!($("company").value.trim() && $("contactName").value.trim());
+    var ok = !!($("company").value.trim() && $("contactName").value.trim() && $("preparedBy").value.trim());
     $("gen").disabled = !ok;
     return ok;
   }
@@ -258,13 +277,14 @@
     $("formErr").textContent = "";
     var company = $("company").value.trim();
     var contactName = $("contactName").value.trim();
-    // Inline validation, no alert(). Generate is disabled until both are present;
-    // this backstop also marks the offending field.
+    var preparedBy = $("preparedBy").value.trim();
+    // Inline validation, no alert(). Generate is disabled until all three are
+    // present; this backstop also marks the offending field.
     if (!company) { $("company").classList.add("invalid"); $("err_company").textContent = "Company is required."; }
     if (!contactName) { $("contactName").classList.add("invalid"); $("err_contactName").textContent = "Contact name is required."; }
-    if (!company || !contactName) return;
-    var preparedBy = $("preparedBy").value.trim();
-    if (preparedBy) localStorage.setItem("sales_prepared_by", preparedBy); // remember on this device
+    if (!preparedBy) { $("preparedBy").classList.add("invalid"); $("err_preparedBy").textContent = "Your name is required. It tags the link for the onboarding team."; }
+    if (!company || !contactName || !preparedBy) return;
+    localStorage.setItem("sales_prepared_by", preparedBy); // remember on this device
     var seed = {
       company: company,
       contactName: contactName,
@@ -287,6 +307,8 @@
       var data = await res.json().catch(function () { return {}; });
       if (!res.ok || !data.id) { $("formErr").textContent = "Could not generate the link. Please try again."; return; }
       $("link").value = CHAT_BASE + "?s=" + encodeURIComponent(data.id);
+      setExpiryNote(data.expiresAt);
+      setDupNote(company, data.duplicates);
       $("out").classList.add("show");
       setTimeout(function () { try { $("link").select(); } catch (e) {} }, 350); // auto-select after the reveal
     } catch (e) {
@@ -303,8 +325,8 @@
     $("industry").value = "Consumer goods, footwear and apparel";
     $("notes").value = "Enterprise tier. Main interest is competitive intelligence; key competitor is Nike.";
     $("out").classList.remove("show"); // programmatic fill doesn't fire input events, so clear any stale link here too
-    $("company").classList.remove("invalid"); $("contactName").classList.remove("invalid");
-    $("err_company").textContent = ""; $("err_contactName").textContent = ""; $("formErr").textContent = "";
+    $("company").classList.remove("invalid"); $("contactName").classList.remove("invalid"); $("preparedBy").classList.remove("invalid");
+    $("err_company").textContent = ""; $("err_contactName").textContent = ""; $("err_preparedBy").textContent = ""; $("err_email").textContent = ""; $("formErr").textContent = "";
     checkValid();
   }
 
@@ -334,6 +356,79 @@
     });
   }
 
+  // Tell the rep how long the link is good for, using the real expiry the seed
+  // function returns (not a hardcoded 90 days, which would lie if the retention
+  // window is changed). Hidden when expiry is disabled server-side.
+  function setExpiryNote(iso) {
+    var el = $("expiryNote");
+    if (!el) return;
+    if (!iso) { el.textContent = ""; el.style.display = "none"; return; }
+    var when;
+    try { when = new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" }); }
+    catch (e) { when = String(iso).slice(0, 10); }
+    el.textContent = "This link works until " + when + ". After that, generate a new one.";
+    el.style.display = "";
+  }
+
+  // Duplicate-client heads-up: if the server reports OTHER non-expired links for
+  // the same company, show a soft, informational note. The new link is still valid
+  // and shown regardless. Values are HTML-escaped before hitting innerHTML.
+  function setDupNote(company, dups) {
+    var el = $("dupNote");
+    if (!el) return;
+    if (!dups || !dups.length) { el.innerHTML = ""; el.style.display = "none"; return; }
+    var top = dups[0] || {};
+    var when = "";
+    if (top.savedAt) {
+      try { when = new Date(top.savedAt).toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" }); }
+      catch (e) { when = String(top.savedAt).slice(0, 10); }
+    }
+    var detail = [];
+    if (when) detail.push("most recent " + esc(when));
+    if (top.preparedBy) detail.push("by " + esc(top.preparedBy));
+    var suffix = detail.length ? " (" + detail.join(" ") + ")" : "";
+    el.innerHTML = "Heads up: a link for <strong>" + esc(company) + "</strong> was already created" + suffix + ".";
+    el.style.display = "";
+  }
+
+  // Email to client: open the rep's mail app with a ready-to-send draft (client's
+  // address and first name pre-filled when known), so they don't hand-copy the
+  // link. Localized to the chat language chosen above, so a French/German/... client
+  // gets the invite in the same language they'll chat in. It's a starting draft the
+  // rep sends from their own mailbox; {greeting}/{link} are filled in at click time.
+  var EMAILS = {
+    English: { hello: "Hi", helloAlone: "Hi there",
+      subject: "Your onboarding: a quick chat to set things up",
+      body: "{greeting},\n\nThanks for getting started with us. Before we set up your account, we'd like to understand what matters most to you so we can tailor it to your goals.\n\nThe easiest way to do that is a short onboarding chat: a guided conversation with our AI assistant. It walks you through a few questions about what you want to monitor, the topics and competitors to track, your key markets and languages, and who on your team needs access. It takes about 15 minutes, and you can pause and come back to finish anytime on the same device.\n\nStart here:\n{link}\n\nWhat happens next: your answers go straight to our onboarding team as a ready-made setup brief. We'll use it to configure your account and then get in touch to walk you through it.\n\nIf you have any questions in the meantime, just reply to this email.\n\nThanks," },
+    French: { hello: "Bonjour", helloAlone: "Bonjour",
+      subject: "Votre intégration : un court échange pour tout mettre en place",
+      body: "{greeting},\n\nMerci d'entamer votre parcours avec nous. Avant de configurer votre compte, nous aimerions comprendre ce qui compte le plus pour vous afin de tout adapter à vos objectifs.\n\nLe plus simple est un court échange d'intégration : une conversation guidée avec notre assistant IA. Il vous posera quelques questions sur ce que vous souhaitez suivre, les sujets et concurrents à surveiller, vos principaux marchés et langues, et les membres de votre équipe qui auront besoin d'un accès. Cela prend environ 15 minutes, et vous pouvez faire une pause et reprendre à tout moment sur le même appareil.\n\nCommencez ici :\n{link}\n\nEt ensuite : vos réponses sont transmises directement à notre équipe d'intégration sous forme de brief de configuration prêt à l'emploi. Nous l'utiliserons pour configurer votre compte, puis nous vous recontacterons pour vous accompagner.\n\nSi vous avez des questions d'ici là, il vous suffit de répondre à cet e-mail.\n\nMerci," },
+    German: { hello: "Hallo", helloAlone: "Hallo",
+      subject: "Ihr Onboarding: ein kurzes Gespräch zum Einrichten",
+      body: "{greeting},\n\nvielen Dank, dass Sie mit uns starten. Bevor wir Ihr Konto einrichten, möchten wir verstehen, was Ihnen am wichtigsten ist, damit wir alles auf Ihre Ziele abstimmen können.\n\nAm einfachsten geht das mit einem kurzen Onboarding-Gespräch: einer geführten Unterhaltung mit unserem KI-Assistenten. Er stellt Ihnen einige Fragen dazu, was Sie beobachten möchten, welche Themen und Wettbewerber zu verfolgen sind, Ihre wichtigsten Märkte und Sprachen und wer in Ihrem Team Zugriff benötigt. Es dauert etwa 15 Minuten, und Sie können jederzeit pausieren und auf demselben Gerät weitermachen.\n\nHier starten:\n{link}\n\nWie es weitergeht: Ihre Antworten gehen direkt als fertiges Setup-Briefing an unser Onboarding-Team. Wir nutzen es, um Ihr Konto einzurichten, und melden uns dann bei Ihnen, um alles gemeinsam durchzugehen.\n\nWenn Sie in der Zwischenzeit Fragen haben, antworten Sie einfach auf diese E-Mail.\n\nDanke," },
+    Spanish: { hello: "Hola", helloAlone: "Hola",
+      subject: "Su incorporación: una breve conversación para empezar",
+      body: "{greeting},\n\nGracias por dar el primer paso con nosotros. Antes de configurar su cuenta, nos gustaría entender qué es lo más importante para usted para poder adaptarlo todo a sus objetivos.\n\nLa forma más sencilla es una breve conversación de incorporación: una charla guiada con nuestro asistente de IA. Le hará algunas preguntas sobre qué desea monitorizar, los temas y competidores que seguir, sus principales mercados e idiomas, y quién de su equipo necesita acceso. Dura unos 15 minutos, y puede pausar y retomarla en cualquier momento en el mismo dispositivo.\n\nEmpiece aquí:\n{link}\n\nQué sucede después: sus respuestas llegan directamente a nuestro equipo de incorporación como un resumen de configuración listo para usar. Lo usaremos para configurar su cuenta y luego nos pondremos en contacto para guiarle.\n\nSi tiene alguna pregunta mientras tanto, solo responda a este correo.\n\nGracias," },
+    Italian: { hello: "Ciao", helloAlone: "Ciao",
+      subject: "Il tuo onboarding: una breve chat per iniziare",
+      body: "{greeting},\n\nGrazie per aver iniziato questo percorso con noi. Prima di configurare il tuo account, vorremmo capire cosa conta di più per te, così da adattare tutto ai tuoi obiettivi.\n\nIl modo più semplice è una breve chat di onboarding: una conversazione guidata con il nostro assistente IA. Ti farà alcune domande su cosa vuoi monitorare, i temi e i concorrenti da seguire, i tuoi mercati e le tue lingue principali, e chi nel tuo team ha bisogno dell'accesso. Richiede circa 15 minuti e puoi metterla in pausa e riprenderla in qualsiasi momento sullo stesso dispositivo.\n\nInizia qui:\n{link}\n\nCosa succede dopo: le tue risposte arrivano direttamente al nostro team di onboarding come un brief di configurazione pronto all'uso. Lo useremo per configurare il tuo account e poi ti contatteremo per guidarti.\n\nSe nel frattempo hai domande, rispondi semplicemente a questa email.\n\nGrazie," },
+    Arabic: { hello: "مرحبًا", helloAlone: "مرحبًا",
+      subject: "إعدادك للانطلاق: محادثة قصيرة للبدء",
+      body: "{greeting}،\n\nشكرًا لبدء رحلتك معنا. قبل إعداد حسابك، نود أن نفهم ما يهمك أكثر حتى نتمكن من تخصيص كل شيء وفقًا لأهدافك.\n\nأسهل طريقة لذلك هي محادثة إعداد قصيرة: محادثة موجهة مع مساعدنا الذكي (بالذكاء الاصطناعي). سيطرح عليك بعض الأسئلة حول ما تريد رصده، والموضوعات والمنافسين الذين ينبغي متابعتهم، وأسواقك ولغاتك الرئيسية، ومن في فريقك يحتاج إلى صلاحية الوصول. تستغرق حوالي 15 دقيقة، ويمكنك التوقف مؤقتًا والعودة لإكمالها في أي وقت على الجهاز نفسه.\n\nابدأ من هنا:\n{link}\n\nما الذي يحدث بعد ذلك: تُرسَل إجاباتك مباشرة إلى فريق الإعداد لدينا على شكل ملخص إعداد جاهز. سنستخدمه لإعداد حسابك ثم نتواصل معك لإرشادك.\n\nإذا كانت لديك أي أسئلة في هذه الأثناء، فما عليك سوى الرد على هذا البريد الإلكتروني.\n\nشكرًا،" },
+  };
+  $("emailBtn").addEventListener("click", function () {
+    var link = $("link").value;
+    if (!link) return;
+    checkEmail(); // surface the soft warning if the To address looks malformed (non-blocking)
+    var contact = $("contactName").value.trim();
+    var first = contact ? contact.split(/\s+/)[0] : "";
+    var to = $("email").value.trim();
+    var em = EMAILS[$("language").value] || EMAILS.English;
+    var greeting = first ? (em.hello + " " + first) : em.helloAlone;
+    var body = em.body.replace("{greeting}", greeting).replace("{link}", link);
+    window.location.href = "mailto:" + to + "?subject=" + encodeURIComponent(em.subject) + "&body=" + encodeURIComponent(body);
+  });
+
   $("gen").addEventListener("click", generate);
   $("example").addEventListener("click", fillExample);
   bindCopy("link", "copy");
@@ -362,17 +457,30 @@
 
   // Clear a field's error as it's corrected and keep Generate's enabled state
   // in sync with the two required fields.
-  ["company", "contactName"].forEach(function (id) {
+  ["company", "contactName", "preparedBy"].forEach(function (id) {
     $(id).addEventListener("input", function () {
       $(id).classList.remove("invalid"); $("err_" + id).textContent = ""; $("formErr").textContent = "";
       checkValid();
     });
   });
-  checkValid(); // Generate starts disabled until company + contact are filled
+
+  // Soft, non-blocking email format check. Email is OPTIONAL, so this only warns:
+  // it never disables Generate. Empty or plausibly-shaped values clear the warning.
+  // It also guards the "Email to client" draft's To field (checked on that click).
+  function checkEmail() {
+    var v = $("email").value.trim();
+    $("err_email").textContent = (v && !/^\S+@\S+\.\S+$/.test(v)) ? "That doesn't look like an email address." : "";
+  }
+  $("email").addEventListener("input", checkEmail);
+  $("email").addEventListener("blur", checkEmail);
 
   // Remember the consultant's name across sessions on this device (shown to
-  // Proserv on the dashboard as the link owner; never sent to the client).
+  // Proserv on the dashboard as "Prepared by"; never sent to the client). Load it
+  // BEFORE the first checkValid so a returning rep isn't blocked by the now-required
+  // field they've already filled once.
   $("preparedBy").value = localStorage.getItem("sales_prepared_by") || "";
+
+  checkValid(); // Generate stays disabled until company, contact and "prepared by" are filled
 </script>
 </body>
 </html>

@@ -94,7 +94,36 @@ export default async (req) => {
     const record = { ...clean, id, savedAt: new Date().toISOString() };
     try { await store.setJSON(id, record); }
     catch (err) { console.error("Failed to save seed", err); return json(502, { error: "save_failed" }); }
-    return json(200, { id });
+    // Surface the link's expiry to the Sales page so it can tell the rep how long
+    // the link is good for. null when expiry is disabled (SEED_TTL_DAYS=0).
+    const expiresAt = SEED_TTL_MS ? new Date(Date.parse(record.savedAt) + SEED_TTL_MS).toISOString() : null;
+
+    // Duplicate-client heads-up: after the write succeeds, look for OTHER
+    // non-expired seeds for the same company (case-insensitive, trimmed, exact)
+    // so the Sales page can warn the rep a link for this client already exists.
+    // Best-effort and non-fatal: the write is already done, so any failure here
+    // just yields an empty list rather than failing the request. Reuses the same
+    // list()/get pattern as the GET list branch. Bounded to 5 (most recent first).
+    let duplicates = [];
+    try {
+      const target = String(record.company || "").trim().toLowerCase();
+      if (target) {
+        const { blobs } = await store.list();
+        const recs = await Promise.all(blobs.map((b) => store.get(b.key, { type: "json" }).catch(() => null)));
+        const matches = [];
+        for (const r of recs) {
+          if (!r || r.id === id) continue;           // skip the record we just wrote
+          if (isExpired(r)) continue;                 // only non-expired seeds count
+          if (String(r.company || "").trim().toLowerCase() === target) {
+            matches.push({ savedAt: r.savedAt || null, preparedBy: r.preparedBy || "" });
+          }
+        }
+        matches.sort((a, b) => (b.savedAt || "").localeCompare(a.savedAt || "")); // most recent first
+        duplicates = matches.slice(0, 5);
+      }
+    } catch (err) { console.error("Duplicate scan failed (non-fatal)", err); }
+
+    return json(200, { id, expiresAt, duplicates });
   }
 
   if (req.method === "GET") {

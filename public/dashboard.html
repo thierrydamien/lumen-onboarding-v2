@@ -75,6 +75,9 @@
   .filters select { font-family:inherit; font-size:13px; padding:7px 10px; border:1px solid var(--border); border-radius:9px; background:#fff; color:var(--ink); cursor:pointer; outline:none; }
   .filters input[type="search"] { font-family:inherit; font-size:13px; padding:8px 12px; border:1px solid var(--border); border-radius:9px; color:var(--ink); min-width:240px; outline:none; background:#fff; }
   .filters input[type="search"]:focus, .filters select:focus { border-color:var(--purple); box-shadow:0 0 0 3px rgba(124,58,237,.12); }
+  .filters input[type="date"] { font-family:inherit; font-size:13px; padding:6px 10px; border:1px solid var(--border); border-radius:9px; background:#fff; color:var(--ink); cursor:pointer; outline:none; }
+  .filters input[type="date"]:focus { border-color:var(--purple); box-shadow:0 0 0 3px rgba(124,58,237,.12); }
+  .fexport { background:var(--purple-soft); color:var(--purple); border:none; border-radius:9px; padding:7px 13px; font-size:12px; font-weight:700; cursor:pointer; font-family:inherit; }
   th.sortable { cursor:pointer; user-select:none; white-space:nowrap; }
   th.sortable:hover { color:var(--purple); }
   th.sortable .sorthint { opacity:.5; font-size:10px; }
@@ -128,6 +131,11 @@
   .stabs button { background:var(--purple-soft); border:none; border-radius:999px; padding:5px 13px; font-size:11px; font-weight:700; color:var(--purple); cursor:pointer; font-family:inherit; }
   .stabs button:hover { background:#e3d9fb; }
   .sheetbody .sec { scroll-margin-top:96px; }
+  /* Feature 5: amber "stalled sessions" banner above the KPIs. */
+  .banner { display:flex; align-items:center; gap:12px; background:#FEF3E2; border:1px solid #F5D9A8; color:#92400e; border-radius:12px; padding:12px 16px; margin-bottom:16px; font-size:13px; line-height:1.4; }
+  .banner button { margin-left:auto; flex-shrink:0; background:#92400e; color:#fff; border:none; border-radius:8px; padding:7px 13px; font-size:12px; font-weight:700; cursor:pointer; font-family:inherit; }
+  /* Feature 6: small "Copy handoff" action in the handoff section header. */
+  .copybtn { float:right; background:var(--purple-soft); color:var(--purple); border:none; border-radius:8px; padding:3px 10px; font-size:10.5px; font-weight:700; cursor:pointer; font-family:inherit; text-transform:none; letter-spacing:normal; }
   @media (max-width:560px){ .wrap{padding:0 12px;} .kpis{grid-template-columns:1fr 1fr;} th,td{padding:9px 8px;} .barlabel{display:none;} }
 </style>
 </head>
@@ -156,6 +164,7 @@
   </div>
   <div class="wrap">
     <h1>Client onboarding sessions</h1>
+    <div id="stalledBanner"></div>
     <div id="kpis" class="kpis" hidden></div>
     <div id="filters" class="filters" hidden></div>
     <div id="body"><div class="empty">Loading…</div></div>
@@ -287,6 +296,7 @@
       loadLinkSent();
     } catch (e) {
       $("kpis").hidden = true; $("filters").hidden = true;
+      $("stalledBanner").innerHTML = "";
       $("body").innerHTML = '<div class="err">Could not load sessions (' + esc(e.message) + '). Check the session function is deployed.</div>';
       $("count").textContent = ""; $("updated").textContent = "";
     } finally {
@@ -329,7 +339,7 @@
 
   var SESSIONS = [];
   var LINKSENT = []; // pseudo-rows: seeds (links) generated but never opened
-  var FILTER = { status: "all", minPct: 0, q: "", owner: "all", sortKey: "lastActive", sortDir: "desc" };
+  var FILTER = { status: "all", minPct: 0, q: "", owner: "all", dateFrom: "", dateTo: "", sortKey: "lastActive", sortDir: "desc" };
   // Value a row sorts by for a given column key.
   function sortVal(s, key) {
     if (key === "company") return (s.company || "").toLowerCase();
@@ -344,6 +354,10 @@
 
   function renderKpis(sessions) {
     var box = $("kpis");
+    // KPIs describe real onboarding sessions; "Link sent" pseudo-rows (links
+    // generated but never opened) carry no timing/cost, so they must not count
+    // as a session or drag the completion rate. They still show in the table.
+    sessions = sessions.filter(function (s) { return !s._linkSent; });
     var total = sessions.length;
     var completed = sessions.filter(function (s) { return s.status === "completed"; });
     var compN = completed.length;
@@ -376,7 +390,7 @@
     var ownerMap = {};
     SESSIONS.concat(LINKSENT).forEach(function (s) { if (s.owner) ownerMap[s.owner] = 1; });
     var ownerKeys = Object.keys(ownerMap).sort();
-    var ownerOpts = [["all", "All owners"]].concat(ownerKeys.map(function (o) { return [o, o]; }));
+    var ownerOpts = [["all", "Anyone"]].concat(ownerKeys.map(function (o) { return [o, o]; }));
     // esc() the option VALUE too — owner names are user-entered, unlike the fixed
     // status/progress literals. The browser hands back the unescaped value on change.
     function sel(id, label, opts, cur) {
@@ -386,10 +400,13 @@
     }
     var box = $("filters");
     box.innerHTML =
-      '<input id="fSearch" type="search" placeholder="Search client, contact, email, owner…" value="' + esc(FILTER.q) + '"/>' +
+      '<input id="fSearch" type="search" placeholder="Search client, contact, email, prepared by…" value="' + esc(FILTER.q) + '"/>' +
       sel("fStatus", "Status", statusOpts, FILTER.status) + sel("fPct", "Progress", pctOpts, FILTER.minPct) +
-      (ownerKeys.length ? sel("fOwner", "Owner", ownerOpts, FILTER.owner) : "") +
-      '<button type="button" id="fClear" class="fclear">Clear</button>';
+      (ownerKeys.length ? sel("fOwner", "Prepared by", ownerOpts, FILTER.owner) : "") +
+      '<label>From <input id="fFrom" type="date" value="' + esc(FILTER.dateFrom) + '"/></label>' +
+      '<label>To <input id="fTo" type="date" value="' + esc(FILTER.dateTo) + '"/></label>' +
+      '<button type="button" id="fClear" class="fclear">Clear</button>' +
+      '<button type="button" id="fExport" class="fexport">Export CSV</button>';
     box.hidden = false;
     // #filters is a separate container from #body, so re-rendering the table on
     // each keystroke does not steal focus from this input.
@@ -397,7 +414,12 @@
     $("fStatus").addEventListener("change", function (e) { FILTER.status = e.target.value; renderTable(); });
     $("fPct").addEventListener("change", function (e) { FILTER.minPct = parseInt(e.target.value, 10) || 0; renderTable(); });
     if (ownerKeys.length) $("fOwner").addEventListener("change", function (e) { FILTER.owner = e.target.value; renderTable(); });
-    $("fClear").addEventListener("click", function () { FILTER = { status: "all", minPct: 0, q: "", owner: "all", sortKey: "lastActive", sortDir: "desc" }; renderFilters(); renderTable(); });
+    // Feature 4: date-range inputs. Empty means unbounded; the predicate treats "To" as end-of-day.
+    $("fFrom").addEventListener("change", function (e) { FILTER.dateFrom = e.target.value; renderTable(); });
+    $("fTo").addEventListener("change", function (e) { FILTER.dateTo = e.target.value; renderTable(); });
+    $("fClear").addEventListener("click", function () { FILTER = { status: "all", minPct: 0, q: "", owner: "all", dateFrom: "", dateTo: "", sortKey: "lastActive", sortDir: "desc" }; renderFilters(); renderTable(); });
+    // Feature 3: export exactly the current filtered view.
+    $("fExport").addEventListener("click", exportCsv);
   }
 
   function rowHtml(s) {
@@ -426,10 +448,34 @@
     { label: "Client", key: "company" }, { label: "Status", key: "status" },
     { label: "Progress", key: "percent" }, { label: "Captured", key: null },
     { label: "Time", key: "time" }, { label: "Tokens / cost", key: "tokens", cls: "num" },
-    { label: "Last active", key: "lastActive" }, { label: "Owner", key: "owner" }, { label: "Report", key: null },
+    { label: "Last active", key: "lastActive" }, { label: "Prepared by", key: "owner" }, { label: "Report", key: null },
   ];
 
-  function renderTable() {
+  // Shared filter predicate for the current view. renderTable() (table + KPIs)
+  // and exportCsv() both build off this, so the CSV export always mirrors exactly
+  // what the table shows. Returns the filtered (unsorted) list.
+  // Parse a yyyy-mm-dd filter value into a LOCAL-time epoch ms boundary. end=true
+  // returns end-of-day (23:59:59.999). Empty/invalid -> NaN (unbounded).
+  function localDay(s, end) {
+    if (!s) return NaN;
+    var p = String(s).split("-");
+    if (p.length !== 3) return NaN;
+    var d = end ? new Date(+p[0], +p[1] - 1, +p[2], 23, 59, 59, 999)
+                : new Date(+p[0], +p[1] - 1, +p[2], 0, 0, 0, 0);
+    var t = d.getTime();
+    return isFinite(t) ? t : NaN;
+  }
+  // Sort a list in place by the active sort column/direction. Shared by the table
+  // and the CSV export so the export matches the on-screen order.
+  function sortList(list) {
+    var dir = FILTER.sortDir === "asc" ? 1 : -1;
+    return list.sort(function (a, b) {
+      var va = sortVal(a, FILTER.sortKey), vb = sortVal(b, FILTER.sortKey);
+      if (typeof va === "string") return va.localeCompare(vb) * dir;
+      return (va - vb) * dir;
+    });
+  }
+  function getFilteredList() {
     var q = FILTER.q.trim().toLowerCase();
     // Owner data is joined onto sessions only after the seed fetch resolves
     // (loadLinkSent). Apply the owner filter ONLY when owners are actually known,
@@ -437,22 +483,38 @@
     // Refresh, or if the seed fetch fails (which would also hide the Owner dropdown,
     // leaving an invisible filter recoverable only via Clear).
     var ownersKnown = SESSIONS.concat(LINKSENT).some(function (s) { return s.owner; });
-    var list = SESSIONS.concat(LINKSENT).filter(function (s) {
+    // Feature 4: date range. "To" is inclusive to end-of-day. Empty = unbounded.
+    // Parse the yyyy-mm-dd inputs as LOCAL day boundaries (not Date.parse, which
+    // reads a date-only string as UTC midnight). The table shows timestamps in
+    // local time, so a UTC boundary would drop near-midnight rows off the wrong
+    // end for any viewer west of UTC (e.g. Vancouver).
+    var fromMs = localDay(FILTER.dateFrom, false);
+    var toMs = localDay(FILTER.dateTo, true);
+    return SESSIONS.concat(LINKSENT).filter(function (s) {
       if (FILTER.status !== "all" && displayStatus(s) !== FILTER.status) return false;
       if (FILTER.minPct > 0 && (s.percent != null ? s.percent : 0) < FILTER.minPct) return false;
       if (ownersKnown && FILTER.owner && FILTER.owner !== "all" && (s.owner || "") !== FILTER.owner) return false;
+      if (isFinite(fromMs) || isFinite(toMs)) {
+        var when = Date.parse(s.lastActiveAt || s.sentAt || s.savedAt || "");
+        // A row with no parseable date can't fall inside a bounded range, so drop it.
+        if (isFinite(fromMs) && !(when >= fromMs)) return false;
+        if (isFinite(toMs) && !(when <= toMs)) return false;
+      }
       if (q) {
         var hay = ((s.company || "") + " " + (s.contact || "") + " " + (s.email || "") + " " + (s.owner || "")).toLowerCase();
         if (hay.indexOf(q) === -1) return false;
       }
       return true;
     });
-    var dir = FILTER.sortDir === "asc" ? 1 : -1;
-    list.sort(function (a, b) {
-      var va = sortVal(a, FILTER.sortKey), vb = sortVal(b, FILTER.sortKey);
-      if (typeof va === "string") return va.localeCompare(vb) * dir;
-      return (va - vb) * dir;
-    });
+  }
+
+  function renderTable() {
+    var list = getFilteredList();
+    // KPI cards sit above the filters and must agree with what's shown, so
+    // recompute them from the filtered list on every filter/search/sort change
+    // (renderKpis drops the link-sent pseudo-rows itself).
+    renderKpis(list);
+    sortList(list);
     var arrow = FILTER.sortDir === "asc" ? " ▲" : " ▼";
     var head = '<table><thead><tr>' + COLS.map(function (c) {
       if (!c.key) return '<th' + (c.cls ? ' class="' + c.cls + '"' : "") + '>' + esc(c.label) + '</th>';
@@ -484,8 +546,82 @@
     });
   }
 
+  // Feature 3: CSV field escaping. Wrap in double quotes when the value contains
+  // a comma, quote or newline, and double any internal quotes.
+  function csvCell(v) {
+    var s = String(v == null ? "" : v);
+    // Neutralize spreadsheet formula injection: a field starting with = + - @ (or
+    // a tab/CR) can be executed as a formula by Excel/Sheets. Client-POSTed fields
+    // (company, contact, email, prepared by, sheet url) are untrusted, so prefix a
+    // single quote to force the cell to text before the delimiter-escaping below.
+    if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
+    return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  }
+  // Feature 3: export EXACTLY the current filtered view (same predicate the table
+  // uses, via getFilteredList) as a CSV, downloaded client-side via a Blob URL.
+  function exportCsv() {
+    var list = sortList(getFilteredList()); // match the on-screen sort order
+    var headers = ["Client", "Contact", "Email", "Status", "Progress %", "Topics", "Channels", "Users", "Time (min)", "Tokens", "Est cost", "Last active", "Prepared by", "Sheet URL"];
+    var lines = [headers.map(csvCell).join(",")];
+    list.forEach(function (s) {
+      var meta = STATUS_META[displayStatus(s)] || STATUS_META.in_progress;
+      var tok = totalTokens(s.tokens);
+      var cost = costOf(s.tokens);
+      lines.push([
+        s.company || "",
+        s.contact || "",
+        s.email || "",
+        meta.l,
+        s.percent != null ? num(s.percent) : 0,
+        num(s.topicCount),
+        num(s.channelCount),
+        num(s.userCount),
+        s.durationMs != null ? Math.round(num(s.durationMs) / 60000) : "",
+        tok != null ? tok : "",
+        cost != null ? cost.toFixed(2) : "",
+        s.lastActiveAt || s.sentAt || s.savedAt || "",
+        s.owner || "",
+        safeUrl(s.sheetUrl)
+      ].map(csvCell).join(","));
+    });
+    var csv = lines.join("\r\n") + "\r\n";
+    // Lead with a UTF-8 BOM so Excel (Windows) reads accented/Arabic client and
+    // contact names correctly instead of mojibake.
+    var blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
+    var url = URL.createObjectURL(blob);
+    var d = new Date();
+    var stamp = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+    var a = document.createElement("a");
+    a.href = url;
+    a.download = "lumen-sessions-" + stamp + ".csv";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 0);
+  }
+
+  // Feature 5: count stalled sessions across ALL sessions (not the filtered
+  // list) and surface an amber banner above the KPIs. Clicking it filters to
+  // stalled. Recomputed on every data reload (called from render).
+  function renderStalledBanner() {
+    var el = $("stalledBanner");
+    if (!el) return;
+    var n = SESSIONS.filter(function (s) { return displayStatus(s) === "stalled"; }).length;
+    if (!n) { el.innerHTML = ""; return; }
+    el.innerHTML = '<div class="banner"><span>' + n +
+      (n === 1 ? " onboarding session is" : " onboarding sessions are") +
+      ' stalled (no activity for 48h+).</span>' +
+      '<button type="button" id="stalledView">View stalled</button></div>';
+    $("stalledView").addEventListener("click", function () {
+      FILTER.status = "stalled";
+      renderFilters();
+      renderTable();
+    });
+  }
+
   function render(sessions) {
     SESSIONS = sessions;
+    renderStalledBanner(); // Feature 5: recompute across all sessions on every reload
     $("count").textContent = sessions.length + (sessions.length === 1 ? " session" : " sessions");
     if (!sessions.length) {
       $("kpis").hidden = true; $("filters").hidden = true;
@@ -495,9 +631,8 @@
         '<div style="font-size:13px;line-height:1.5">Sessions appear here the moment a client sends their brief.</div></div>';
       return;
     }
-    renderKpis(sessions);
     renderFilters();
-    renderTable();
+    renderTable(); // renderTable recomputes the KPIs from the filtered list
   }
 
   // Close from anywhere (button, backdrop, Escape) and hand focus back to where
@@ -582,11 +717,15 @@
     if (sUrl) html += '<div class="sec">Editable Google Sheet</div><div class="list"><div><a href="' + esc(sUrl) + '" target="_blank" rel="noopener noreferrer">Open the client\'s brief in Google Sheets</a></div></div>';
 
     var h = s.handoff;
+    var handoffText = ""; // Feature 6: plain-text version for the Copy button
     if (h) {
-      var hrows = [["Maturity", h.maturity], ["Goal in their words", h.goalInOwnWords], ["Hesitations", h.hesitations], ["AI-suggested, unconfirmed", h.aiSuggestedUnconfirmed], ["Follow-ups for the review call", h.followUps], ["Tips for the consultant", h.consultantTips]]
-        .filter(function (r) { return r[1]; })
-        .map(function (r) { return '<div><strong>' + esc(r[0]) + ':</strong> ' + esc(r[1]) + '</div>'; }).join("");
-      if (hrows) html += '<div class="sec">Consultant handoff</div><div class="list">' + hrows + '</div>';
+      var hpairs = [["Maturity", h.maturity], ["Goal in their words", h.goalInOwnWords], ["Hesitations", h.hesitations], ["AI-suggested, unconfirmed", h.aiSuggestedUnconfirmed], ["Follow-ups for the review call", h.followUps], ["Tips for the consultant", h.consultantTips]]
+        .filter(function (r) { return r[1]; });
+      var hrows = hpairs.map(function (r) { return '<div><strong>' + esc(r[0]) + ':</strong> ' + esc(r[1]) + '</div>'; }).join("");
+      if (hrows) {
+        handoffText = hpairs.map(function (r) { return r[0] + ": " + r[1]; }).join("\n");
+        html += '<div class="sec">Consultant handoff <button type="button" id="copyHandoff" class="copybtn">Copy handoff</button></div><div class="list">' + hrows + '</div>';
+      }
     }
 
     if (s.seedId) {
@@ -604,6 +743,43 @@
         if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
       });
     });
+    // Feature 6: copy the handoff rows as plain text (only present when there is a handoff).
+    var copyBtn = $("copyHandoff");
+    if (copyBtn) {
+      var copyLabel = copyBtn.textContent;
+      copyBtn.addEventListener("click", function () { copyText(handoffText, copyBtn, copyLabel); });
+    }
+  }
+
+  // Feature 6: copy helper. Prefer the async Clipboard API; fall back to a hidden
+  // textarea + execCommand for older or non-secure contexts. Shows a transient
+  // "Copied" on the button.
+  function copyText(text, btn, label) {
+    function done() {
+      if (!btn) return;
+      btn.textContent = "Copied";
+      setTimeout(function () { btn.textContent = label; }, 1500);
+    }
+    function fallback() {
+      try {
+        var ta = document.createElement("textarea");
+        ta.value = text;
+        ta.style.position = "fixed";
+        ta.style.top = "-1000px";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+        done();
+      } catch (e) { /* clipboard unavailable */ }
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done, fallback);
+    } else {
+      fallback();
+    }
   }
 
   function kv(k, v) {

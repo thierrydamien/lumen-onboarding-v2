@@ -105,48 +105,7 @@ const normObjectives = d => Array.isArray(d) ? {ranked:d, details:""}
   : {ranked:[], details:""};
 const fmtRanked = d => { const n = normObjectives(d); return n.ranked.length ? n.ranked.map((o,i)=>`${i+1}. ${o}`).join(", ") : ""; };
 
-const SMOKE_PERSONAS = [
-  { key:"terse",    label:"Terse expert",       emoji:"🧊" },
-  { key:"novice",   label:"Rambling novice",    emoji:"🌀" },
-  { key:"offtopic", label:"Off-topic wanderer", emoji:"🦋" },
-];
-
-
-const CLIENT_BASE = "You are role-playing a CLIENT being onboarded onto Lumen, a social listening tool. Your profile: Jane Smith, Marketing Director at Acme Corp, a consumer goods (footwear and apparel) company. Email jane@acmecorp.com. Competitors: Nike, Adidas, Puma. Markets: US and UK.";
-
-// Build the simulated-client profile from the seed a salesperson generated, so a
-// simulate run tests the same handoff a real client link produces. Falls back to
-// the original Jane Smith / Acme profile when there is no seed.
-function buildClientBase(sd) {
-  if (!sd || !sd.company) return CLIENT_BASE;
-  const contact  = sd.contactName || "the primary contact";
-  const company  = sd.company;
-  const industry = sd.industry ? ` in ${sd.industry}` : "";
-  const email    = sd.email || "the contact's work email";
-  return `You are role-playing a CLIENT being onboarded onto Lumen, a social listening tool. Your profile: ${contact}, a contact at ${company}${industry}. Email ${email}. Invent consistent, realistic details for anything not specified (competitors, markets, products, campaigns) and keep them consistent for the entire conversation. Never contradict the profile above.`;
-}
-
-// Language directive appended to the simulated client's persona so it answers in
-// the same language the session is running in. English needs no directive.
-function clientLangLine(uiLang) {
-  return uiLang && uiLang !== "English" ? ` Write ALL of your replies in ${uiLang}.` : "";
-}
-
-// Seed- and language-aware simulate personas. Same shape as before; the menu only
-// surfaces terse/novice/offtopic, rambler/french are kept for completeness.
-function buildSmokePrompts(sd, uiLang) {
-  const base = buildClientBase(sd), lang = clientLangLine(uiLang);
-  return {
-    terse:    `${base} Goal: competitive intelligence and brand reputation. STYLE: extremely terse and expert. Maximum 12 words per reply. Use industry jargon (SOV, boolean, sentiment). Slightly impatient. Never volunteer extra information.${lang} Output ONLY the client's next chat message, no quotes, no commentary.`,
-    novice:   `${base} Goal: brand reputation, vaguely understood. STYLE: friendly but vague and unsure, new to social listening. 2 to 4 sentences per reply. Start vague ('marketing stuff', 'our competitors I guess') and only give specifics when pushed. Occasionally ask what a term means.${lang} Output ONLY the client's next chat message, no quotes, no commentary.`,
-    offtopic: `${base} Goal: brand reputation and competitive intelligence. STYLE: cooperative but easily distracted. Roughly every second reply, FIRST ask one unrelated question (pricing, contract length, an unrelated feature, small talk), THEN briefly answer the assistant's actual question.${lang} Output ONLY the client's next chat message, no quotes, no commentary.`,
-    rambler:  `${base} Goal: brand reputation, buried in noise. STYLE: extremely long-winded. Every reply is 4 to 7 sentences containing exactly ONE useful fact wrapped in anecdotes, tangents about colleagues, and hedging. Never structure your answers.${lang} Output ONLY the client's next chat message, no quotes, no commentary.`,
-    french:   `${base} Goal: veille concurrentielle et réputation de marque. STYLE: répond UNIQUEMENT en français, poliment, 1 à 3 phrases. Ne passe jamais à l'anglais même si l'assistant écrit en anglais. Output ONLY the client's next chat message, no quotes, no commentary.`,
-  };
-}
-
-// The exact first message a real client link produces. Shared by the real flow
-// (startConvo) and the simulate flow (runSmokeTest) so the two can't drift.
+// The exact first message a real client link produces (used by startConvo).
 // Carries a language directive when the session isn't in English.
 function seededOpener(sd, uiLang) {
   const langDirective = uiLang && uiLang !== "English" ? ` Please conduct the entire conversation in ${uiLang}.` : "";
@@ -154,24 +113,6 @@ function seededOpener(sd, uiLang) {
     return `[SEEDED SESSION] Prepared by the Lumen team. Company: ${sd.company}. Contact: ${sd.contactName}${sd.email?` (${sd.email})`:""}.${sd.industry?` Industry: ${sd.industry}.`:""}${sd.notes?` Consultant notes (do not read back to the client): ${sd.notes}.`:""} The client has just opened their link.${langDirective}`;
   }
   return `Hello, I'm ready to get started.${langDirective}`;
-}
-const SMOKE_WIDGET_DATA = {
-  PATH:"guided", QUERIES:"__skip__",
-  MARKETS:["United States","United Kingdom"], LANGUAGES:["English"],
-  OBJECTIVES:{ranked:["Reputation Management","Competitive Intelligence"],details:""},
-  TEAMS:["Marketing","PR"], TIMEZONE:["GMT / UTC"],
-  USERS:[{firstName:"Jane",lastName:"Smith",email:"jane@acmecorp.com",role:"Marketing Director",access:"Admin"}],
-};
-const SMOKE_MAX_TURNS = 22;
-
-// Widget auto-fill for the simulate flow. USERS is derived from the seeded contact
-// (instead of hardcoded Jane) so the simulated run matches a real seeded session.
-function buildSmokeWidgetData(sd) {
-  if (!sd || !sd.company) return SMOKE_WIDGET_DATA;
-  const first = (sd.contactName||"").split(" ")[0] || "Alex";
-  const last  = (sd.contactName||"").split(" ").slice(1).join(" ") || "";
-  const email = sd.email || `${first.toLowerCase()}@${(sd.company||"client").toLowerCase().replace(/[^a-z0-9]/g,"")}.com`;
-  return { ...SMOKE_WIDGET_DATA, USERS:[{firstName:first,lastName:last,email,role:"Primary contact",access:"Admin"}] };
 }
 
 // ================= CLIENT-SIDE LANGUAGE ==================
@@ -196,6 +137,16 @@ const I18N = {
     welcomeSubSeeded:   "Your Lumen team prepared this session for {company}. We\u2019ll talk through your goals, markets, and team \u2014 and build your setup brief as we go.",
     step1Title: "About 15 minutes",
     step1Desc:  "Pause anytime — reopen this link on the same device and you'll pick up where you left off.",
+    step1DescNoSave: "Heads up: this browser isn't saving your progress (private mode?), so please try to finish in one sitting.",
+    welcomeBackTitle: "Welcome back!",
+    welcomeBackDesc:  "You have an onboarding session in progress.",
+    savedPercent:     "{pct}% complete",
+    savedOnDevice:    "Your answers are saved on this device",
+    resumeBtn:        "Resume session",
+    startOverBtn:     "Start over",
+    eraseWarn:        "Starting over permanently erases your saved answers. This can't be undone.",
+    keepBtn:          "Keep my progress",
+    eraseBtn:         "Erase and start over",
     step2Title: "A conversation, not a form",
     step2Desc:  "We'll cover your goals, what to track, where your audience talks, reports, and your team.",
     step3Title: "Then we take over",
@@ -250,6 +201,100 @@ const I18N = {
     phReply: "Type your reply…",
     phAnswerAbove: "Answer above — or just type it here",
     reviewBtn: "Finished early, or stuck? Review and send your brief",
+    sendHint: "↵ to send · Shift+↵ for a new line",
+    expTitle: "Your setup brief",
+    expSubtitle: "Everything you’ve shared, in one place. Open a section to adjust anything.",
+    expClose: "Close review",
+    expReady: "Ready to send",
+    expAlmost: "Almost there",
+    expReadyDesc: "All required fields complete and all topics confirmed.",
+    expStillNeeded: "Still needed: {gaps}",
+    expFooterReady: "✓ Ready to send",
+    expMore: "+{n} more",
+    expRequired: "Required",
+    expOptional: "Optional",
+    expTopic: "topic", expTopics: "topics",
+    expChannel: "channel", expChannels: "channels",
+    expReport: "report", expReports: "reports",
+    expUser: "user", expUsers: "users",
+    expReqCompany: "Company name",
+    expReqEmail: "Contact email",
+    expReqMarkets: "Markets",
+    expReqLanguages: "Languages",
+    expReqObjectives: "Objectives",
+    expReqTopic: "At least one topic",
+    expReqTopicsConfirmed: "All topics confirmed",
+    expReqUser: "At least one user",
+    expSecBusiness: "About your business",
+    expSecTeam: "Your team",
+    expSecTrack: "What we’ll track",
+    expSecLook: "Where we’ll look",
+    expSecReports: "Reports and alerts",
+    expFldName: "Company Name",
+    expFldEmail: "Contact Email",
+    expFldIndustry: "Industry",
+    expFldMarkets: "Geographic Markets",
+    expFldLanguages: "Key Languages",
+    expFldObjectives: "Business Objectives",
+    expFldObjDetails: "Objective Details",
+    expFldUseCases: "Use Cases",
+    expFldTimezone: "Preferred Time Zone",
+    expFldTeams: "Teams / Departments",
+    expFldContact: "Main Point of Contact",
+    expNoUsers: "No users captured.",
+    expUFirst: "First name",
+    expULast: "Last name",
+    expUEmail: "Email",
+    expURole: "Role",
+    expRemoveUser: "Remove user {name}",
+    expAddUser: "+ Add user",
+    expNoTopics: "No topics captured.",
+    expUnconfirmedOne: "{n} topic was suggested by the assistant. Confirm or drop it before handing off.",
+    expUnconfirmedMany: "{n} topics were suggested by the assistant. Confirm or drop them before handing off.",
+    expGuess: "Assistant guess",
+    expConfirmed: "Confirmed",
+    expConfirm: "Confirm",
+    expDrop: "Drop",
+    expRemoveTopic: "Remove topic {name}",
+    expTopicName: "Topic name",
+    expKeywords: "Keywords…",
+    expRationale: "Rationale / comments…",
+    expAddTopic: "+ Add topic",
+    expPasteLabel: "Have a list already? Paste it",
+    expPasteTopicPh: "One topic per line. Optionally add keywords and a note separated by | (e.g. Nike | \"Nike\" OR @Nike | main competitor)",
+    expNoChannels: "No channels captured.",
+    expChName: "Name / handle",
+    expChPlatform: "Platform",
+    expChUrl: "URL",
+    expChOwned: "Owned or competitor?",
+    expRemoveChannel: "Remove channel {name}",
+    expAddChannel: "+ Add channel",
+    expPasteChannelPh: "One channel per line: a URL, a name, or both (e.g. Nike https://twitter.com/nike)",
+    expReportsHdr: "Reports and dashboards",
+    expNoReports: "No reports captured.",
+    expRepName: "Report name",
+    expObjective: "Objective",
+    expDetails: "Details",
+    expComments: "Comments",
+    expRemoveReport: "Remove report {name}",
+    expAddReport: "+ Add report",
+    expAlertsHdr: "Alerts",
+    expNoAlerts: "No alerts captured.",
+    expAlName: "Alert name",
+    expType: "Type",
+    expRemoveAlert: "Remove alert {name}",
+    expAddAlert: "+ Add alert",
+    expSendFailed: "We couldn’t send your brief just now. Please check your connection and press Send again.",
+    expCancel: "Cancel",
+    expDownload: "Download a copy",
+    expSending: "Sending…",
+    expSend: "📨 Send to my Lumen team",
+    expImport: "Import",
+    editPrefill: "Correction, earlier I said \"{quote}\". What I actually meant: ",
+    editTitle: "Send a correction without deleting any messages",
+    editLabel: "Edit",
+    focusWidgetGroup: "Interactive options",
+    focusRepliesGroup: "Suggested replies",
   },
   French: {
     welcomeTitle:       "Bienvenue dans l'intégration Lumen",
@@ -258,6 +303,16 @@ const I18N = {
     welcomeSubSeeded:   "Votre équipe Lumen a préparé cette session pour {company}. Nous aborderons vos objectifs, vos marchés et votre équipe, et construirons votre brief au fur et à mesure.",
     step1Title: "Environ 15 minutes",
     step1Desc:  "Faites une pause quand vous voulez : rouvrez ce lien sur le même appareil et vous reprendrez là où vous vous étiez arrêté.",
+    step1DescNoSave: "À noter : ce navigateur n'enregistre pas votre progression (mode privé ?). Essayez de terminer en une seule fois.",
+    welcomeBackTitle: "Bon retour !",
+    welcomeBackDesc:  "Vous avez une session d'intégration en cours.",
+    savedPercent:     "Terminé à {pct} %",
+    savedOnDevice:    "Vos réponses sont enregistrées sur cet appareil",
+    resumeBtn:        "Reprendre la session",
+    startOverBtn:     "Recommencer",
+    eraseWarn:        "Recommencer efface définitivement vos réponses enregistrées. Cette action est irréversible.",
+    keepBtn:          "Conserver ma progression",
+    eraseBtn:         "Effacer et recommencer",
     step2Title: "Une conversation, pas un formulaire",
     step2Desc:  "Nous aborderons vos objectifs, ce qu'il faut suivre, où votre audience s'exprime, les rapports et votre équipe.",
     step3Title: "Ensuite, nous prenons le relais",
@@ -312,6 +367,100 @@ const I18N = {
     phReply: "Écrivez votre réponse…",
     phAnswerAbove: "Répondez ci-dessus — ou écrivez-le ici",
     reviewBtn: "Terminé plus tôt ou bloqué ? Revoyez et envoyez votre brief",
+    sendHint: "↵ pour envoyer · Maj+↵ pour un saut de ligne",
+    expTitle: "Votre brief de configuration",
+    expSubtitle: "Tout ce que vous avez partagé, au même endroit. Ouvrez une section pour ajuster ce que vous voulez.",
+    expClose: "Fermer la revue",
+    expReady: "Prêt à envoyer",
+    expAlmost: "Presque terminé",
+    expReadyDesc: "Tous les champs obligatoires sont remplis et tous les sujets sont confirmés.",
+    expStillNeeded: "Encore nécessaire : {gaps}",
+    expFooterReady: "✓ Prêt à envoyer",
+    expMore: "+{n} de plus",
+    expRequired: "Obligatoire",
+    expOptional: "Facultatif",
+    expTopic: "sujet", expTopics: "sujets",
+    expChannel: "canal", expChannels: "canaux",
+    expReport: "rapport", expReports: "rapports",
+    expUser: "utilisateur", expUsers: "utilisateurs",
+    expReqCompany: "Nom de l'entreprise",
+    expReqEmail: "E-mail de contact",
+    expReqMarkets: "Marchés",
+    expReqLanguages: "Langues",
+    expReqObjectives: "Objectifs",
+    expReqTopic: "Au moins un sujet",
+    expReqTopicsConfirmed: "Tous les sujets confirmés",
+    expReqUser: "Au moins un utilisateur",
+    expSecBusiness: "À propos de votre entreprise",
+    expSecTeam: "Votre équipe",
+    expSecTrack: "Ce que nous suivrons",
+    expSecLook: "Où nous chercherons",
+    expSecReports: "Rapports et alertes",
+    expFldName: "Nom de l'entreprise",
+    expFldEmail: "E-mail de contact",
+    expFldIndustry: "Secteur",
+    expFldMarkets: "Marchés géographiques",
+    expFldLanguages: "Langues clés",
+    expFldObjectives: "Objectifs commerciaux",
+    expFldObjDetails: "Détails des objectifs",
+    expFldUseCases: "Cas d'usage",
+    expFldTimezone: "Fuseau horaire préféré",
+    expFldTeams: "Équipes / services",
+    expFldContact: "Interlocuteur principal",
+    expNoUsers: "Aucun utilisateur enregistré.",
+    expUFirst: "Prénom",
+    expULast: "Nom",
+    expUEmail: "E-mail",
+    expURole: "Rôle",
+    expRemoveUser: "Supprimer l'utilisateur {name}",
+    expAddUser: "+ Ajouter un utilisateur",
+    expNoTopics: "Aucun sujet enregistré.",
+    expUnconfirmedOne: "{n} sujet a été suggéré par l'assistant. Confirmez-le ou supprimez-le avant la transmission.",
+    expUnconfirmedMany: "{n} sujets ont été suggérés par l'assistant. Confirmez-les ou supprimez-les avant la transmission.",
+    expGuess: "Suggestion de l'assistant",
+    expConfirmed: "Confirmé",
+    expConfirm: "Confirmer",
+    expDrop: "Supprimer",
+    expRemoveTopic: "Supprimer le sujet {name}",
+    expTopicName: "Nom du sujet",
+    expKeywords: "Mots-clés…",
+    expRationale: "Justification / commentaires…",
+    expAddTopic: "+ Ajouter un sujet",
+    expPasteLabel: "Vous avez déjà une liste ? Collez-la",
+    expPasteTopicPh: "Un sujet par ligne. Ajoutez éventuellement des mots-clés et une note séparés par | (par ex. Nike | \"Nike\" OR @Nike | principal concurrent)",
+    expNoChannels: "Aucun canal enregistré.",
+    expChName: "Nom / identifiant",
+    expChPlatform: "Plateforme",
+    expChUrl: "URL",
+    expChOwned: "Propre ou concurrent ?",
+    expRemoveChannel: "Supprimer le canal {name}",
+    expAddChannel: "+ Ajouter un canal",
+    expPasteChannelPh: "Un canal par ligne : une URL, un nom, ou les deux (par ex. Nike https://twitter.com/nike)",
+    expReportsHdr: "Rapports et tableaux de bord",
+    expNoReports: "Aucun rapport enregistré.",
+    expRepName: "Nom du rapport",
+    expObjective: "Objectif",
+    expDetails: "Détails",
+    expComments: "Commentaires",
+    expRemoveReport: "Supprimer le rapport {name}",
+    expAddReport: "+ Ajouter un rapport",
+    expAlertsHdr: "Alertes",
+    expNoAlerts: "Aucune alerte enregistrée.",
+    expAlName: "Nom de l'alerte",
+    expType: "Type",
+    expRemoveAlert: "Supprimer l'alerte {name}",
+    expAddAlert: "+ Ajouter une alerte",
+    expSendFailed: "Nous n'avons pas pu envoyer votre brief à l'instant. Vérifiez votre connexion et appuyez de nouveau sur Envoyer.",
+    expCancel: "Annuler",
+    expDownload: "Télécharger une copie",
+    expSending: "Envoi…",
+    expSend: "📨 Envoyer à mon équipe Lumen",
+    expImport: "Importer",
+    editPrefill: "Correction, j'avais dit précédemment : « {quote} ». Ce que je voulais vraiment dire : ",
+    editTitle: "Envoyer une correction sans supprimer de messages",
+    editLabel: "Modifier",
+    focusWidgetGroup: "Options interactives",
+    focusRepliesGroup: "Réponses suggérées",
   },
   German: {
     welcomeTitle:       "Willkommen beim Lumen-Onboarding",
@@ -320,6 +469,16 @@ const I18N = {
     welcomeSubSeeded:   "Ihr Lumen-Team hat diese Sitzung für {company} vorbereitet. Wir besprechen Ihre Ziele, Märkte und Ihr Team und erstellen Ihr Setup-Briefing Schritt für Schritt.",
     step1Title: "Etwa 15 Minuten",
     step1Desc:  "Jederzeit pausieren: Öffnen Sie diesen Link auf demselben Gerät erneut und Sie machen dort weiter, wo Sie aufgehört haben.",
+    step1DescNoSave: "Hinweis: Dieser Browser speichert Ihren Fortschritt nicht (Privatmodus?). Bitte schließen Sie die Sitzung möglichst in einem Durchgang ab.",
+    welcomeBackTitle: "Willkommen zurück!",
+    welcomeBackDesc:  "Sie haben eine laufende Onboarding-Sitzung.",
+    savedPercent:     "{pct} % abgeschlossen",
+    savedOnDevice:    "Ihre Antworten sind auf diesem Gerät gespeichert",
+    resumeBtn:        "Sitzung fortsetzen",
+    startOverBtn:     "Neu beginnen",
+    eraseWarn:        "Wenn Sie neu beginnen, werden Ihre gespeicherten Antworten dauerhaft gelöscht. Das kann nicht rückgängig gemacht werden.",
+    keepBtn:          "Fortschritt behalten",
+    eraseBtn:         "Löschen und neu beginnen",
     step2Title: "Ein Gespräch, kein Formular",
     step2Desc:  "Wir behandeln Ihre Ziele, was Sie beobachten möchten, wo Ihr Publikum spricht, Berichte und Ihr Team.",
     step3Title: "Dann übernehmen wir",
@@ -373,7 +532,101 @@ const I18N = {
     savedShort: "✓ Gespeichert",
     phReply: "Antwort eingeben…",
     phAnswerAbove: "Oben antworten — oder hier eintippen",
-    reviewBtn: "Früher fertig oder festgefahren? Brief prüfen und senden",
+    reviewBtn: "Früher fertig oder festgefahren? Briefing prüfen und senden",
+    sendHint: "↵ zum Senden · Umschalt+↵ für neue Zeile",
+    expTitle: "Ihr Setup-Briefing",
+    expSubtitle: "Alles, was Sie geteilt haben, an einem Ort. Öffnen Sie einen Abschnitt, um etwas anzupassen.",
+    expClose: "Überprüfung schließen",
+    expReady: "Bereit zum Senden",
+    expAlmost: "Fast geschafft",
+    expReadyDesc: "Alle Pflichtfelder ausgefüllt und alle Themen bestätigt.",
+    expStillNeeded: "Noch erforderlich: {gaps}",
+    expFooterReady: "✓ Bereit zum Senden",
+    expMore: "+{n} weitere",
+    expRequired: "Erforderlich",
+    expOptional: "Optional",
+    expTopic: "Thema", expTopics: "Themen",
+    expChannel: "Kanal", expChannels: "Kanäle",
+    expReport: "Bericht", expReports: "Berichte",
+    expUser: "Benutzer", expUsers: "Benutzer",
+    expReqCompany: "Firmenname",
+    expReqEmail: "Kontakt-E-Mail",
+    expReqMarkets: "Märkte",
+    expReqLanguages: "Sprachen",
+    expReqObjectives: "Ziele",
+    expReqTopic: "Mindestens ein Thema",
+    expReqTopicsConfirmed: "Alle Themen bestätigt",
+    expReqUser: "Mindestens ein Benutzer",
+    expSecBusiness: "Über Ihr Unternehmen",
+    expSecTeam: "Ihr Team",
+    expSecTrack: "Was wir verfolgen",
+    expSecLook: "Wo wir suchen",
+    expSecReports: "Berichte und Benachrichtigungen",
+    expFldName: "Firmenname",
+    expFldEmail: "Kontakt-E-Mail",
+    expFldIndustry: "Branche",
+    expFldMarkets: "Geografische Märkte",
+    expFldLanguages: "Wichtige Sprachen",
+    expFldObjectives: "Geschäftsziele",
+    expFldObjDetails: "Details zu den Zielen",
+    expFldUseCases: "Anwendungsfälle",
+    expFldTimezone: "Bevorzugte Zeitzone",
+    expFldTeams: "Teams / Abteilungen",
+    expFldContact: "Wichtigster Ansprechpartner",
+    expNoUsers: "Keine Benutzer erfasst.",
+    expUFirst: "Vorname",
+    expULast: "Nachname",
+    expUEmail: "E-Mail",
+    expURole: "Rolle",
+    expRemoveUser: "Benutzer {name} entfernen",
+    expAddUser: "+ Benutzer hinzufügen",
+    expNoTopics: "Keine Themen erfasst.",
+    expUnconfirmedOne: "{n} Thema wurde vom Assistenten vorgeschlagen. Bestätigen oder verwerfen Sie es vor der Übergabe.",
+    expUnconfirmedMany: "{n} Themen wurden vom Assistenten vorgeschlagen. Bestätigen oder verwerfen Sie sie vor der Übergabe.",
+    expGuess: "Vorschlag des Assistenten",
+    expConfirmed: "Bestätigt",
+    expConfirm: "Bestätigen",
+    expDrop: "Verwerfen",
+    expRemoveTopic: "Thema {name} entfernen",
+    expTopicName: "Themenname",
+    expKeywords: "Schlüsselwörter…",
+    expRationale: "Begründung / Kommentare…",
+    expAddTopic: "+ Thema hinzufügen",
+    expPasteLabel: "Haben Sie bereits eine Liste? Fügen Sie sie ein",
+    expPasteTopicPh: "Ein Thema pro Zeile. Optional Schlüsselwörter und eine Notiz mit | trennen (z. B. Nike | \"Nike\" OR @Nike | Hauptkonkurrent)",
+    expNoChannels: "Keine Kanäle erfasst.",
+    expChName: "Name / Handle",
+    expChPlatform: "Plattform",
+    expChUrl: "URL",
+    expChOwned: "Eigener Kanal oder Konkurrent?",
+    expRemoveChannel: "Kanal {name} entfernen",
+    expAddChannel: "+ Kanal hinzufügen",
+    expPasteChannelPh: "Ein Kanal pro Zeile: eine URL, ein Name oder beides (z. B. Nike https://twitter.com/nike)",
+    expReportsHdr: "Berichte und Dashboards",
+    expNoReports: "Keine Berichte erfasst.",
+    expRepName: "Berichtsname",
+    expObjective: "Ziel",
+    expDetails: "Details",
+    expComments: "Kommentare",
+    expRemoveReport: "Bericht {name} entfernen",
+    expAddReport: "+ Bericht hinzufügen",
+    expAlertsHdr: "Benachrichtigungen",
+    expNoAlerts: "Keine Benachrichtigungen erfasst.",
+    expAlName: "Name der Benachrichtigung",
+    expType: "Typ",
+    expRemoveAlert: "Benachrichtigung {name} entfernen",
+    expAddAlert: "+ Benachrichtigung hinzufügen",
+    expSendFailed: "Wir konnten Ihr Briefing gerade nicht senden. Bitte prüfen Sie Ihre Verbindung und klicken Sie erneut auf Senden.",
+    expCancel: "Abbrechen",
+    expDownload: "Kopie herunterladen",
+    expSending: "Wird gesendet…",
+    expSend: "📨 An mein Lumen-Team senden",
+    expImport: "Importieren",
+    editPrefill: "Korrektur, ich sagte zuvor: „{quote}“. Was ich eigentlich meinte: ",
+    editTitle: "Eine Korrektur senden, ohne Nachrichten zu löschen",
+    editLabel: "Bearbeiten",
+    focusWidgetGroup: "Interaktive Optionen",
+    focusRepliesGroup: "Vorgeschlagene Antworten",
   },
   Spanish: {
     welcomeTitle:       "Bienvenido a la incorporación de Lumen",
@@ -382,6 +635,16 @@ const I18N = {
     welcomeSubSeeded:   "Su equipo de Lumen preparó esta sesión para {company}. Hablaremos de sus objetivos, mercados y equipo, y crearemos su resumen de configuración sobre la marcha.",
     step1Title: "Unos 15 minutos",
     step1Desc:  "Haga una pausa cuando quiera: vuelva a abrir este enlace en el mismo dispositivo y continuará donde lo dejó.",
+    step1DescNoSave: "Aviso: este navegador no está guardando su progreso (¿modo privado?). Intente completarlo de una sola vez.",
+    welcomeBackTitle: "¡Bienvenido de nuevo!",
+    welcomeBackDesc:  "Tiene una sesión de incorporación en curso.",
+    savedPercent:     "{pct} % completado",
+    savedOnDevice:    "Sus respuestas están guardadas en este dispositivo",
+    resumeBtn:        "Reanudar la sesión",
+    startOverBtn:     "Empezar de nuevo",
+    eraseWarn:        "Empezar de nuevo borra permanentemente sus respuestas guardadas. Esta acción no se puede deshacer.",
+    keepBtn:          "Conservar mi progreso",
+    eraseBtn:         "Borrar y empezar de nuevo",
     step2Title: "Una conversación, no un formulario",
     step2Desc:  "Cubriremos sus objetivos, qué monitorizar, dónde habla su audiencia, los informes y su equipo.",
     step3Title: "Después nos encargamos nosotros",
@@ -435,7 +698,101 @@ const I18N = {
     savedShort: "✓ Guardado",
     phReply: "Escriba su respuesta…",
     phAnswerAbove: "Responda arriba — o escríbalo aquí",
-    reviewBtn: "¿Terminó antes o está atascado? Revise y envíe su brief",
+    reviewBtn: "¿Terminó antes o está atascado? Revise y envíe su resumen",
+    sendHint: "↵ para enviar · Mayús+↵ para nueva línea",
+    expTitle: "Su resumen de configuración",
+    expSubtitle: "Todo lo que ha compartido, en un solo lugar. Abra una sección para ajustar lo que quiera.",
+    expClose: "Cerrar revisión",
+    expReady: "Listo para enviar",
+    expAlmost: "Casi listo",
+    expReadyDesc: "Todos los campos obligatorios están completos y todos los temas confirmados.",
+    expStillNeeded: "Aún falta: {gaps}",
+    expFooterReady: "✓ Listo para enviar",
+    expMore: "+{n} más",
+    expRequired: "Obligatorio",
+    expOptional: "Opcional",
+    expTopic: "tema", expTopics: "temas",
+    expChannel: "canal", expChannels: "canales",
+    expReport: "informe", expReports: "informes",
+    expUser: "usuario", expUsers: "usuarios",
+    expReqCompany: "Nombre de la empresa",
+    expReqEmail: "Correo de contacto",
+    expReqMarkets: "Mercados",
+    expReqLanguages: "Idiomas",
+    expReqObjectives: "Objetivos",
+    expReqTopic: "Al menos un tema",
+    expReqTopicsConfirmed: "Todos los temas confirmados",
+    expReqUser: "Al menos un usuario",
+    expSecBusiness: "Sobre su empresa",
+    expSecTeam: "Su equipo",
+    expSecTrack: "Qué monitorizaremos",
+    expSecLook: "Dónde buscaremos",
+    expSecReports: "Informes y alertas",
+    expFldName: "Nombre de la empresa",
+    expFldEmail: "Correo de contacto",
+    expFldIndustry: "Sector",
+    expFldMarkets: "Mercados geográficos",
+    expFldLanguages: "Idiomas clave",
+    expFldObjectives: "Objetivos de negocio",
+    expFldObjDetails: "Detalles de los objetivos",
+    expFldUseCases: "Casos de uso",
+    expFldTimezone: "Zona horaria preferida",
+    expFldTeams: "Equipos / departamentos",
+    expFldContact: "Contacto principal",
+    expNoUsers: "No se han registrado usuarios.",
+    expUFirst: "Nombre",
+    expULast: "Apellidos",
+    expUEmail: "Correo electrónico",
+    expURole: "Rol",
+    expRemoveUser: "Eliminar al usuario {name}",
+    expAddUser: "+ Añadir usuario",
+    expNoTopics: "No se han registrado temas.",
+    expUnconfirmedOne: "El asistente sugirió {n} tema. Confírmelo o descártelo antes de la entrega.",
+    expUnconfirmedMany: "El asistente sugirió {n} temas. Confírmelos o descártelos antes de la entrega.",
+    expGuess: "Sugerencia del asistente",
+    expConfirmed: "Confirmado",
+    expConfirm: "Confirmar",
+    expDrop: "Descartar",
+    expRemoveTopic: "Eliminar el tema {name}",
+    expTopicName: "Nombre del tema",
+    expKeywords: "Palabras clave…",
+    expRationale: "Justificación / comentarios…",
+    expAddTopic: "+ Añadir tema",
+    expPasteLabel: "¿Ya tiene una lista? Péguela",
+    expPasteTopicPh: "Un tema por línea. Opcionalmente añada palabras clave y una nota separadas por | (p. ej. Nike | \"Nike\" OR @Nike | competidor principal)",
+    expNoChannels: "No se han registrado canales.",
+    expChName: "Nombre / usuario",
+    expChPlatform: "Plataforma",
+    expChUrl: "URL",
+    expChOwned: "¿Propio o competidor?",
+    expRemoveChannel: "Eliminar el canal {name}",
+    expAddChannel: "+ Añadir canal",
+    expPasteChannelPh: "Un canal por línea: una URL, un nombre, o ambos (p. ej. Nike https://twitter.com/nike)",
+    expReportsHdr: "Informes y paneles",
+    expNoReports: "No se han registrado informes.",
+    expRepName: "Nombre del informe",
+    expObjective: "Objetivo",
+    expDetails: "Detalles",
+    expComments: "Comentarios",
+    expRemoveReport: "Eliminar el informe {name}",
+    expAddReport: "+ Añadir informe",
+    expAlertsHdr: "Alertas",
+    expNoAlerts: "No se han registrado alertas.",
+    expAlName: "Nombre de la alerta",
+    expType: "Tipo",
+    expRemoveAlert: "Eliminar la alerta {name}",
+    expAddAlert: "+ Añadir alerta",
+    expSendFailed: "No pudimos enviar su resumen en este momento. Compruebe su conexión y pulse Enviar de nuevo.",
+    expCancel: "Cancelar",
+    expDownload: "Descargar una copia",
+    expSending: "Enviando…",
+    expSend: "📨 Enviar a mi equipo de Lumen",
+    expImport: "Importar",
+    editPrefill: "Corrección, antes dije: «{quote}». Lo que realmente quería decir: ",
+    editTitle: "Enviar una corrección sin eliminar ningún mensaje",
+    editLabel: "Editar",
+    focusWidgetGroup: "Opciones interactivas",
+    focusRepliesGroup: "Respuestas sugeridas",
   },
   Italian: {
     welcomeTitle:       "Benvenuto nell'onboarding di Lumen",
@@ -444,6 +801,16 @@ const I18N = {
     welcomeSubSeeded:   "Il tuo team Lumen ha preparato questa sessione per {company}. Parleremo dei tuoi obiettivi, dei mercati e del team, e costruiremo il tuo brief di configurazione strada facendo.",
     step1Title: "Circa 15 minuti",
     step1Desc:  "Metti in pausa quando vuoi: riapri questo link sullo stesso dispositivo e riprenderai da dove avevi lasciato.",
+    step1DescNoSave: "Nota: questo browser non sta salvando i tuoi progressi (modalità privata?). Cerca di completare la sessione in una volta sola.",
+    welcomeBackTitle: "Bentornato!",
+    welcomeBackDesc:  "Hai una sessione di onboarding in corso.",
+    savedPercent:     "{pct} % completato",
+    savedOnDevice:    "Le tue risposte sono salvate su questo dispositivo",
+    resumeBtn:        "Riprendi la sessione",
+    startOverBtn:     "Ricomincia",
+    eraseWarn:        "Ricominciando, le tue risposte salvate verranno eliminate definitivamente. L'operazione non può essere annullata.",
+    keepBtn:          "Mantieni i miei progressi",
+    eraseBtn:         "Elimina e ricomincia",
     step2Title: "Una conversazione, non un modulo",
     step2Desc:  "Copriremo i tuoi obiettivi, cosa monitorare, dove parla il tuo pubblico, i report e il tuo team.",
     step3Title: "Poi ci pensiamo noi",
@@ -498,6 +865,100 @@ const I18N = {
     phReply: "Scrivi la tua risposta…",
     phAnswerAbove: "Rispondi sopra — o scrivilo qui",
     reviewBtn: "Finito prima o bloccato? Rivedi e invia il tuo brief",
+    sendHint: "↵ per inviare · Maiusc+↵ per andare a capo",
+    expTitle: "Il tuo brief di configurazione",
+    expSubtitle: "Tutto ciò che hai condiviso, in un unico posto. Apri una sezione per modificare qualcosa.",
+    expClose: "Chiudi revisione",
+    expReady: "Pronto per l'invio",
+    expAlmost: "Ci siamo quasi",
+    expReadyDesc: "Tutti i campi obbligatori sono compilati e tutti gli argomenti confermati.",
+    expStillNeeded: "Ancora necessario: {gaps}",
+    expFooterReady: "✓ Pronto per l'invio",
+    expMore: "+{n} altri",
+    expRequired: "Obbligatorio",
+    expOptional: "Facoltativo",
+    expTopic: "argomento", expTopics: "argomenti",
+    expChannel: "canale", expChannels: "canali",
+    expReport: "report", expReports: "report",
+    expUser: "utente", expUsers: "utenti",
+    expReqCompany: "Nome dell'azienda",
+    expReqEmail: "E-mail di contatto",
+    expReqMarkets: "Mercati",
+    expReqLanguages: "Lingue",
+    expReqObjectives: "Obiettivi",
+    expReqTopic: "Almeno un argomento",
+    expReqTopicsConfirmed: "Tutti gli argomenti confermati",
+    expReqUser: "Almeno un utente",
+    expSecBusiness: "La tua azienda",
+    expSecTeam: "Il tuo team",
+    expSecTrack: "Cosa monitoreremo",
+    expSecLook: "Dove cercheremo",
+    expSecReports: "Report e avvisi",
+    expFldName: "Nome dell'azienda",
+    expFldEmail: "E-mail di contatto",
+    expFldIndustry: "Settore",
+    expFldMarkets: "Mercati geografici",
+    expFldLanguages: "Lingue principali",
+    expFldObjectives: "Obiettivi aziendali",
+    expFldObjDetails: "Dettagli sugli obiettivi",
+    expFldUseCases: "Casi d'uso",
+    expFldTimezone: "Fuso orario preferito",
+    expFldTeams: "Team / reparti",
+    expFldContact: "Referente principale",
+    expNoUsers: "Nessun utente registrato.",
+    expUFirst: "Nome",
+    expULast: "Cognome",
+    expUEmail: "E-mail",
+    expURole: "Ruolo",
+    expRemoveUser: "Rimuovi l'utente {name}",
+    expAddUser: "+ Aggiungi utente",
+    expNoTopics: "Nessun argomento registrato.",
+    expUnconfirmedOne: "L'assistente ha suggerito {n} argomento. Confermalo o scartalo prima della consegna.",
+    expUnconfirmedMany: "L'assistente ha suggerito {n} argomenti. Confermali o scartali prima della consegna.",
+    expGuess: "Suggerimento dell'assistente",
+    expConfirmed: "Confermato",
+    expConfirm: "Conferma",
+    expDrop: "Scarta",
+    expRemoveTopic: "Rimuovi l'argomento {name}",
+    expTopicName: "Nome dell'argomento",
+    expKeywords: "Parole chiave…",
+    expRationale: "Motivazione / commenti…",
+    expAddTopic: "+ Aggiungi argomento",
+    expPasteLabel: "Hai già un elenco? Incollalo",
+    expPasteTopicPh: "Un argomento per riga. Facoltativamente aggiungi parole chiave e una nota separate da | (per es. Nike | \"Nike\" OR @Nike | concorrente principale)",
+    expNoChannels: "Nessun canale registrato.",
+    expChName: "Nome / handle",
+    expChPlatform: "Piattaforma",
+    expChUrl: "URL",
+    expChOwned: "Proprio o concorrente?",
+    expRemoveChannel: "Rimuovi il canale {name}",
+    expAddChannel: "+ Aggiungi canale",
+    expPasteChannelPh: "Un canale per riga: un URL, un nome, o entrambi (per es. Nike https://twitter.com/nike)",
+    expReportsHdr: "Report e dashboard",
+    expNoReports: "Nessun report registrato.",
+    expRepName: "Nome del report",
+    expObjective: "Obiettivo",
+    expDetails: "Dettagli",
+    expComments: "Commenti",
+    expRemoveReport: "Rimuovi il report {name}",
+    expAddReport: "+ Aggiungi report",
+    expAlertsHdr: "Avvisi",
+    expNoAlerts: "Nessun avviso registrato.",
+    expAlName: "Nome dell'avviso",
+    expType: "Tipo",
+    expRemoveAlert: "Rimuovi l'avviso {name}",
+    expAddAlert: "+ Aggiungi avviso",
+    expSendFailed: "Non siamo riusciti a inviare il tuo brief in questo momento. Controlla la connessione e premi di nuovo Invia.",
+    expCancel: "Annulla",
+    expDownload: "Scarica una copia",
+    expSending: "Invio in corso…",
+    expSend: "📨 Invia al mio team Lumen",
+    expImport: "Importa",
+    editPrefill: "Correzione, prima avevo detto: «{quote}». Ciò che intendevo davvero: ",
+    editTitle: "Invia una correzione senza eliminare alcun messaggio",
+    editLabel: "Modifica",
+    focusWidgetGroup: "Opzioni interattive",
+    focusRepliesGroup: "Risposte suggerite",
   },
   Arabic: {
     welcomeTitle:       "مرحبًا بك في إعداد Lumen",
@@ -506,6 +967,16 @@ const I18N = {
     welcomeSubSeeded:   "أعدّ فريق Lumen هذه الجلسة لـ {company}. سنتحدث عن أهدافك وأسواقك وفريقك، وننشئ ملخص الإعداد الخاص بك خطوة بخطوة.",
     step1Title: "حوالي 15 دقيقة",
     step1Desc:  "توقف مؤقتًا متى شئت: أعد فتح هذا الرابط على الجهاز نفسه وستتابع من حيث توقفت.",
+    step1DescNoSave: "تنبيه: هذا المتصفح لا يحفظ تقدمك (هل أنت في وضع التصفح الخاص؟)، لذا حاول إكمال الجلسة دفعة واحدة.",
+    welcomeBackTitle: "أهلًا بعودتك!",
+    welcomeBackDesc:  "لديك جلسة إعداد قيد التقدم.",
+    savedPercent:     "اكتمل {pct}%",
+    savedOnDevice:    "إجاباتك محفوظة على هذا الجهاز",
+    resumeBtn:        "استئناف الجلسة",
+    startOverBtn:     "البدء من جديد",
+    eraseWarn:        "البدء من جديد يحذف إجاباتك المحفوظة نهائيًا. لا يمكن التراجع عن هذا الإجراء.",
+    keepBtn:          "الاحتفاظ بتقدمي",
+    eraseBtn:         "حذف والبدء من جديد",
     step2Title: "محادثة، وليست نموذجًا",
     step2Desc:  "سنغطي أهدافك، وما الذي تريد متابعته، وأين يتحدث جمهورك، والتقارير، وفريقك.",
     step3Title: "ثم نتولى نحن الأمر",
@@ -559,14 +1030,111 @@ const I18N = {
     savedShort: "✓ محفوظ",
     phReply: "اكتب ردك…",
     phAnswerAbove: "أجب أعلاه — أو اكتبه هنا",
-    reviewBtn: "انتهيت مبكرًا أو تواجه صعوبة؟ راجع وأرسل موجزك",
+    reviewBtn: "انتهيت مبكرًا أو تواجه صعوبة؟ راجع وأرسل ملخصك",
+    sendHint: "↵ للإرسال · Shift+↵ لسطر جديد",
+    expTitle: "ملخص الإعداد الخاص بك",
+    expSubtitle: "كل ما شاركته في مكان واحد. افتح أي قسم لتعديل ما تشاء.",
+    expClose: "إغلاق المراجعة",
+    expReady: "جاهز للإرسال",
+    expAlmost: "أوشكت على الانتهاء",
+    expReadyDesc: "جميع الحقول المطلوبة مكتملة وجميع المواضيع مؤكَّدة.",
+    expStillNeeded: "لا يزال مطلوبًا: {gaps}",
+    expFooterReady: "✓ جاهز للإرسال",
+    expMore: "+{n} أخرى",
+    expRequired: "مطلوب",
+    expOptional: "اختياري",
+    expTopic: "موضوع", expTopics: "مواضيع",
+    expChannel: "قناة", expChannels: "قنوات",
+    expReport: "تقرير", expReports: "تقارير",
+    expUser: "مستخدم", expUsers: "مستخدمون",
+    expReqCompany: "اسم الشركة",
+    expReqEmail: "بريد جهة الاتصال",
+    expReqMarkets: "الأسواق",
+    expReqLanguages: "اللغات",
+    expReqObjectives: "الأهداف",
+    expReqTopic: "موضوع واحد على الأقل",
+    expReqTopicsConfirmed: "تأكيد جميع المواضيع",
+    expReqUser: "مستخدم واحد على الأقل",
+    expSecBusiness: "عن شركتك",
+    expSecTeam: "فريقك",
+    expSecTrack: "ما سنراقبه",
+    expSecLook: "أين سنبحث",
+    expSecReports: "التقارير والتنبيهات",
+    expFldName: "اسم الشركة",
+    expFldEmail: "بريد جهة الاتصال",
+    expFldIndustry: "القطاع",
+    expFldMarkets: "الأسواق الجغرافية",
+    expFldLanguages: "اللغات الرئيسية",
+    expFldObjectives: "أهداف العمل",
+    expFldObjDetails: "تفاصيل الأهداف",
+    expFldUseCases: "حالات الاستخدام",
+    expFldTimezone: "المنطقة الزمنية المفضّلة",
+    expFldTeams: "الفرق / الأقسام",
+    expFldContact: "جهة الاتصال الرئيسية",
+    expNoUsers: "لم يُسجَّل أي مستخدم.",
+    expUFirst: "الاسم الأول",
+    expULast: "اسم العائلة",
+    expUEmail: "البريد الإلكتروني",
+    expURole: "الدور",
+    expRemoveUser: "إزالة المستخدم {name}",
+    expAddUser: "+ إضافة مستخدم",
+    expNoTopics: "لم يُسجَّل أي موضوع.",
+    expUnconfirmedOne: "اقترح المساعد موضوعًا واحدًا. أكِّده أو استبعده قبل التسليم.",
+    expUnconfirmedMany: "اقترح المساعد {n} مواضيع. أكِّدها أو استبعدها قبل التسليم.",
+    expGuess: "اقتراح المساعد",
+    expConfirmed: "مؤكَّد",
+    expConfirm: "تأكيد",
+    expDrop: "استبعاد",
+    expRemoveTopic: "إزالة الموضوع {name}",
+    expTopicName: "اسم الموضوع",
+    expKeywords: "الكلمات المفتاحية…",
+    expRationale: "المبرر / التعليقات…",
+    expAddTopic: "+ إضافة موضوع",
+    expPasteLabel: "لديك قائمة جاهزة؟ الصقها",
+    expPasteTopicPh: "موضوع واحد في كل سطر. يمكنك اختياريًا إضافة كلمات مفتاحية وملاحظة مفصولة بـ | (مثل Nike | \"Nike\" OR @Nike | المنافس الرئيسي)",
+    expNoChannels: "لم تُسجَّل أي قناة.",
+    expChName: "الاسم / المعرّف",
+    expChPlatform: "المنصّة",
+    expChUrl: "الرابط",
+    expChOwned: "مملوكة أم منافِسة؟",
+    expRemoveChannel: "إزالة القناة {name}",
+    expAddChannel: "+ إضافة قناة",
+    expPasteChannelPh: "قناة واحدة في كل سطر: رابط أو اسم أو كلاهما (مثل Nike https://twitter.com/nike)",
+    expReportsHdr: "التقارير ولوحات المعلومات",
+    expNoReports: "لم يُسجَّل أي تقرير.",
+    expRepName: "اسم التقرير",
+    expObjective: "الهدف",
+    expDetails: "التفاصيل",
+    expComments: "التعليقات",
+    expRemoveReport: "إزالة التقرير {name}",
+    expAddReport: "+ إضافة تقرير",
+    expAlertsHdr: "التنبيهات",
+    expNoAlerts: "لم يُسجَّل أي تنبيه.",
+    expAlName: "اسم التنبيه",
+    expType: "النوع",
+    expRemoveAlert: "إزالة التنبيه {name}",
+    expAddAlert: "+ إضافة تنبيه",
+    expSendFailed: "تعذّر إرسال ملخصك الآن. تحقّق من اتصالك واضغط إرسال مرة أخرى.",
+    expCancel: "إلغاء",
+    expDownload: "تنزيل نسخة",
+    expSending: "جارٍ الإرسال…",
+    expSend: "📨 إرسال إلى فريق Lumen الخاص بي",
+    expImport: "استيراد",
+    editPrefill: "تصحيح، قلت سابقًا: «{quote}». ما قصدته فعلًا: ",
+    editTitle: "إرسال تصحيح دون حذف أي رسائل",
+    editLabel: "تعديل",
+    focusWidgetGroup: "خيارات تفاعلية",
+    focusRepliesGroup: "ردود مقترحة",
   },
 };
 
 function L(key, lang, vars) {
   const dict = I18N[lang] || I18N.English;
   let s = (dict[key] != null ? dict[key] : I18N.English[key]) || "";
-  if (vars) for (const k in vars) s = s.replace(new RegExp("\\{" + k + "\\}", "g"), vars[k]);
+  // Function replacement so $-sequences in the value ($$, $&, $`, $') are inserted
+  // literally rather than interpreted as regex replacement patterns. Matters because
+  // editPrefill feeds arbitrary user text (m.content) through {quote}.
+  if (vars) for (const k in vars) s = s.replace(new RegExp("\\{" + k + "\\}", "g"), () => String(vars[k]));
   return s;
 }
 
@@ -1103,10 +1671,6 @@ function TopicCards({ suggestions, onConfirm, onSkip, lang }) {
   </div>;
 }
 
-function PathChoice({ onSubmit }) {
-  return <div style={{marginTop:10,display:"flex",gap:10}}>{[{key:"guided",emoji:"🗺️",label:"Guided Setup",desc:"Section by section: markets, languages, objectives and more."},{key:"recommendations",emoji:"⚡",label:"Recommendations",desc:"Share what you're tracking and I'll build smart suggestions."}].map(p => <button key={p.key} onClick={()=>onSubmit(p.key)} style={{flex:1,background:"#f8f9fa",border:"1px solid #e2e8f0",color:"#1e293b",borderRadius:10,padding:"14px 16px",cursor:"pointer",textAlign:"left"}}><div style={{fontSize:18,marginBottom:6}}>{p.emoji}</div><div style={{fontWeight:700,fontSize:13,marginBottom:4}}>{p.label}</div><div style={{fontSize:12,color:"#64748b",lineHeight:1.4}}>{p.desc}</div></button>)}</div>;
-}
-
 // Query import limits: extracted file text lands in the API context on submit,
 // so cap it before one big agency export blows up the conversation.
 const Q_MAX_LINES = 200, Q_MAX_CHARS = 15000, Q_MAX_FILE_BYTES = 2 * 1024 * 1024;
@@ -1283,7 +1847,7 @@ function Section({ title, badge, defaultOpen=true, children }) {
 
 // Bulk import for clients who arrive with a prepared list (e.g. an offline
 // template). One item per line; topics support "name | keywords | rationale".
-function PasteImport({ label, placeholder, onImport }) {
+function PasteImport({ label, placeholder, onImport, lang }) {
   const [open,setOpen] = useState(false);
   const [text,setText] = useState("");
   const run = () => {
@@ -1296,8 +1860,8 @@ function PasteImport({ label, placeholder, onImport }) {
     <div style={{fontSize:11,color:"#64748b",marginBottom:6}}>{placeholder}</div>
     <textarea value={text} onChange={e=>setText(e.target.value)} rows={5} style={{width:"100%",border:"1px solid #e2e8f0",borderRadius:7,padding:"7px 10px",fontSize:12,color:"#1e293b",outline:"none",resize:"vertical",boxSizing:"border-box",marginBottom:8}}/>
     <div style={{display:"flex",gap:8}}>
-      <button onClick={run} disabled={!text.trim()} style={{background:text.trim()?P:"#e2e8f0",color:"white",border:"none",borderRadius:7,padding:"6px 14px",fontSize:12,fontWeight:600,cursor:text.trim()?"pointer":"default"}}>Import</button>
-      <button onClick={()=>{setText("");setOpen(false);}} style={{background:"transparent",border:"1px solid #e2e8f0",borderRadius:7,padding:"6px 12px",fontSize:12,color:"#64748b",cursor:"pointer"}}>Cancel</button>
+      <button onClick={run} disabled={!text.trim()} style={{background:text.trim()?P:"#e2e8f0",color:"white",border:"none",borderRadius:7,padding:"6px 14px",fontSize:12,fontWeight:600,cursor:text.trim()?"pointer":"default"}}>{L("expImport",lang)}</button>
+      <button onClick={()=>{setText("");setOpen(false);}} style={{background:"transparent",border:"1px solid #e2e8f0",borderRadius:7,padding:"6px 12px",fontSize:12,color:"#64748b",cursor:"pointer"}}>{L("expCancel",lang)}</button>
     </div>
   </div>;
 }
@@ -1338,7 +1902,7 @@ class ModalBoundary extends Component {
   }
 }
 
-function ExportModal({ cdata, wState, messages, onClose, onExport, onSend, sending, sendErr, sent, sheetLink }) {
+function ExportModal({ cdata, wState, messages, onClose, onExport, onSend, sending, sendErr, sent, sheetLink, uiLang }) {
   // Skipped widgets store the string "__skip__" — returning it caused .join/.map
   // crashes downstream (the "blank screen on Review & send" bug). Treat as null.
   const gw = type => { const es=Object.entries(wState||{}).filter(([k,v])=>k.endsWith(`-${type}`)&&v?.submitted).sort((a,b)=>(parseInt(a[0])||0)-(parseInt(b[0])||0)); const d=es.length?es[es.length-1][1].data:null; return d==="__skip__"?null:d; };
@@ -1348,7 +1912,7 @@ function ExportModal({ cdata, wState, messages, onClose, onExport, onSend, sendi
     return m?.[1]?.trim()||"";
   }, [messages]);
   const objW = normObjectives(gw("OBJECTIVES"));
-  const [co,setCo]     = useState({name:"",email:"",industry:"",useCase:"",contact:"",...cdata.company,name:cdata.company?.name||historyName});
+  const [co,setCo]     = useState({email:"",industry:"",useCase:"",contact:"",...cdata.company,name:cdata.company?.name||historyName});
   const [mkts,setMkts] = useState((gw("MARKETS")||[]).join(", ")||cdata.company?.markets||"");
   const [langs,setLangs]= useState((gw("LANGUAGES")||[]).join(", ")||cdata.company?.languages||"");
   const [objs,setObjs] = useState(fmtRanked(objW)||cdata.company?.objectives||"");
@@ -1386,22 +1950,22 @@ function ExportModal({ cdata, wState, messages, onClose, onExport, onSend, sendi
   const unconfirmed = topics.filter(t=>!t.confirmed).length;
   // readiness scoring
   const reqChecks = [
-    ["Company name", !!co.name],
-    ["Contact email", !!co.email && EMAIL_RE.test(co.email)],
-    ["Markets", !!mkts.trim()],
-    ["Languages", !!langs.trim()],
-    ["Objectives", !!objs.trim()],
-    ["At least one topic", topics.length>0],
-    ["All topics confirmed", topics.length>0 && unconfirmed===0],
-    ["At least one user", users.length>0],
+    ["expReqCompany", !!co.name],
+    ["expReqEmail", !!co.email && EMAIL_RE.test(co.email)],
+    ["expReqMarkets", !!mkts.trim()],
+    ["expReqLanguages", !!langs.trim()],
+    ["expReqObjectives", !!objs.trim()],
+    ["expReqTopic", topics.length>0],
+    ["expReqTopicsConfirmed", topics.length>0 && unconfirmed===0],
+    ["expReqUser", users.length>0],
   ];
   const passed = reqChecks.filter(c=>c[1]).length;
   const pct = Math.round(passed/reqChecks.length*100);
-  const gaps = reqChecks.filter(c=>!c[1]).map(c=>c[0]);
+  const gaps = reqChecks.filter(c=>!c[1]).map(c=>L(c[0],uiLang));
   const ready = gaps.length===0;
   const fld = (label,val,set,multi,req) => <div style={{marginBottom:12}}>
     <div style={{fontSize:11,fontWeight:600,color:"#64748b",marginBottom:4,display:"flex",alignItems:"center",gap:6}}>
-      {label}<span style={{fontSize:10,padding:"1px 6px",borderRadius:4,fontWeight:600,background:req?"#fef2f2":"#f1f5f9",color:req?"#dc2626":"#64748b"}}>{req?"Required":"Optional"}</span>
+      {label}<span style={{fontSize:10,padding:"1px 6px",borderRadius:4,fontWeight:600,background:req?"#fef2f2":"#f1f5f9",color:req?"#dc2626":"#64748b"}}>{req?L("expRequired",uiLang):L("expOptional",uiLang)}</span>
     </div>
     {multi
       ? <textarea value={val} onChange={e=>set(e.target.value)} rows={2} aria-label={label} style={{width:"100%",border:`1px solid ${req&&!val?"#fca5a5":"#e2e8f0"}`,borderRadius:7,padding:"7px 10px",fontSize:12,color:"#1e293b",outline:"none",resize:"vertical",boxSizing:"border-box"}}/>
@@ -1433,10 +1997,10 @@ function ExportModal({ cdata, wState, messages, onClose, onExport, onSend, sendi
     };
   }, [onClose]);
   return <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000,padding:16,animation:REDUCE_MOTION?"none":"fadeIn .18s ease-out"}}>
-    <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="Your setup brief" tabIndex={-1} style={{background:"white",borderRadius:T.radius.lg,width:"100%",maxWidth:680,maxHeight:"90vh",display:"flex",flexDirection:"column",boxShadow:T.shadow.modal,outline:"none",animation:REDUCE_MOTION?"none":"modalPop .2s ease-out"}}>
+    <div ref={dialogRef} role="dialog" aria-modal="true" aria-label={L("expTitle",uiLang)} tabIndex={-1} style={{background:"white",borderRadius:T.radius.lg,width:"100%",maxWidth:680,maxHeight:"90vh",display:"flex",flexDirection:"column",boxShadow:T.shadow.modal,outline:"none",animation:REDUCE_MOTION?"none":"modalPop .2s ease-out"}}>
       <div style={{padding:"20px 24px 16px",borderBottom:"1px solid #e2e8f0",display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
-        <div><h2 style={{fontWeight:700,fontSize:16,color:"#1e293b",margin:0}}>Your setup brief</h2><div style={{fontSize:12,color:"#64748b",marginTop:2}}>Everything you've shared, in one place. Open a section to adjust anything.</div></div>
-        <button onClick={onClose} aria-label="Close review" style={{background:"transparent",border:"none",fontSize:20,cursor:"pointer",color:"#64748b"}}>✕</button>
+        <div><h2 style={{fontWeight:700,fontSize:16,color:"#1e293b",margin:0}}>{L("expTitle",uiLang)}</h2><div style={{fontSize:12,color:"#64748b",marginTop:2}}>{L("expSubtitle",uiLang)}</div></div>
+        <button onClick={onClose} aria-label={L("expClose",uiLang)} style={{background:"transparent",border:"none",fontSize:20,cursor:"pointer",color:"#64748b"}}>✕</button>
       </div>
       <div style={{flex:1,overflowY:"auto",padding:"20px 24px"}}>
         <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:20,padding:"12px 14px",borderRadius:10,background:ready?"#f0fdf4":"#fffbeb",border:`1px solid ${ready?"#bbf7d0":"#fde68a"}`}}>
@@ -1448,103 +2012,103 @@ function ExportModal({ cdata, wState, messages, onClose, onExport, onSend, sendi
             <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:700,color:"#1e293b"}}>{pct}%</div>
           </div>
           <div style={{flex:1,minWidth:0}}>
-            <div style={{fontWeight:700,fontSize:13,color:"#1e293b"}}>{ready?"Ready to send":"Almost there"}</div>
-            <div style={{fontSize:11,color:"#64748b",margin:"1px 0 2px"}}>{topics.length} topic{topics.length!==1?"s":""} · {chans.length} channel{chans.length!==1?"s":""} · {reports.length+alerts.length} report{(reports.length+alerts.length)!==1?"s":""} · {users.length} user{users.length!==1?"s":""}</div>
+            <div style={{fontWeight:700,fontSize:13,color:"#1e293b"}}>{ready?L("expReady",uiLang):L("expAlmost",uiLang)}</div>
+            <div style={{fontSize:11,color:"#64748b",margin:"1px 0 2px"}}>{topics.length} {L(topics.length!==1?"expTopics":"expTopic",uiLang)} · {chans.length} {L(chans.length!==1?"expChannels":"expChannel",uiLang)} · {reports.length+alerts.length} {L((reports.length+alerts.length)!==1?"expReports":"expReport",uiLang)} · {users.length} {L(users.length!==1?"expUsers":"expUser",uiLang)}</div>
             {ready
-              ? <div style={{fontSize:12,color:"#166534"}}>All required fields complete and all topics confirmed.</div>
-              : <div style={{fontSize:12,color:"#92400e"}}>Still needed: {gaps.join(", ")}</div>}
+              ? <div style={{fontSize:12,color:"#166534"}}>{L("expReadyDesc",uiLang)}</div>
+              : <div style={{fontSize:12,color:"#92400e"}}>{L("expStillNeeded",uiLang,{gaps:gaps.join(", ")})}</div>}
           </div>
         </div>
-        <Section title="About your business" defaultOpen={!co.name||!co.email||!mkts.trim()||!langs.trim()||!objs.trim()}>
-          {fld("Company Name",co.name,v=>setCo(c=>({...c,name:v})),false,true)}
-          {fld("Contact Email",co.email,v=>setCo(c=>({...c,email:v})),false,true)}
-          {fld("Industry",co.industry,v=>setCo(c=>({...c,industry:v})),false,false)}
-          {fld("Geographic Markets",mkts,setMkts,false,true)}
-          {fld("Key Languages",langs,setLangs,false,true)}
-          {fld("Business Objectives",objs,setObjs,false,true)}
-          {fld("Objective Details",objDetails,setObjDetails,true,false)}
-          {fld("Use Cases",co.useCase,v=>setCo(c=>({...c,useCase:v})),true,false)}
-          {fld("Preferred Time Zone",tz,setTz,false,false)}
-          {fld("Teams / Departments",teams,setTeams,false,false)}
-          {fld("Main Point of Contact",co.contact,v=>setCo(c=>({...c,contact:v})),false,false)}
+        <Section title={L("expSecBusiness",uiLang)} defaultOpen={!co.name||!co.email||!mkts.trim()||!langs.trim()||!objs.trim()}>
+          {fld(L("expFldName",uiLang),co.name,v=>setCo(c=>({...c,name:v})),false,true)}
+          {fld(L("expFldEmail",uiLang),co.email,v=>setCo(c=>({...c,email:v})),false,true)}
+          {fld(L("expFldIndustry",uiLang),co.industry,v=>setCo(c=>({...c,industry:v})),false,false)}
+          {fld(L("expFldMarkets",uiLang),mkts,setMkts,false,true)}
+          {fld(L("expFldLanguages",uiLang),langs,setLangs,false,true)}
+          {fld(L("expFldObjectives",uiLang),objs,setObjs,false,true)}
+          {fld(L("expFldObjDetails",uiLang),objDetails,setObjDetails,true,false)}
+          {fld(L("expFldUseCases",uiLang),co.useCase,v=>setCo(c=>({...c,useCase:v})),true,false)}
+          {fld(L("expFldTimezone",uiLang),tz,setTz,false,false)}
+          {fld(L("expFldTeams",uiLang),teams,setTeams,false,false)}
+          {fld(L("expFldContact",uiLang),co.contact,v=>setCo(c=>({...c,contact:v})),false,false)}
         </Section>
-        <Section title="Your team" badge={users.length} defaultOpen={users.length===0}>
-          {users.length===0 && <div style={{fontSize:12,color:"#64748b",fontStyle:"italic",marginBottom:8}}>No users captured.</div>}
+        <Section title={L("expSecTeam",uiLang)} badge={users.length} defaultOpen={users.length===0}>
+          {users.length===0 && <div style={{fontSize:12,color:"#64748b",fontStyle:"italic",marginBottom:8}}>{L("expNoUsers",uiLang)}</div>}
           {users.map((u,i) => <div key={i} style={{background:"#f8f9fa",borderRadius:8,padding:"10px 12px",marginBottom:8}}>
             <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:6,marginBottom:6}}>
               {/* Human names, not raw keys: "firstName" as a placeholder is unreadable
                   for everyone and vanishes once filled, leaving the field nameless. */}
-              {[["firstName","First name"],["lastName","Last name"],["email","Email"],["role","Role"]].map(([k,lb]) => <input key={k} value={u[k]||""} placeholder={lb} aria-label={lb} onChange={e=>setUsers(us=>us.map((x,j)=>j===i?{...x,[k]:e.target.value}:x))} style={{border:"1px solid #e2e8f0",borderRadius:6,padding:"6px 8px",fontSize:11,outline:"none"}}/>)}
+              {[["firstName",L("expUFirst",uiLang)],["lastName",L("expULast",uiLang)],["email",L("expUEmail",uiLang)],["role",L("expURole",uiLang)]].map(([k,lb]) => <input key={k} value={u[k]||""} placeholder={lb} aria-label={lb} onChange={e=>setUsers(us=>us.map((x,j)=>j===i?{...x,[k]:e.target.value}:x))} style={{border:"1px solid #e2e8f0",borderRadius:6,padding:"6px 8px",fontSize:11,outline:"none"}}/>)}
             </div>
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
               <div style={{display:"flex",gap:4}}>{["Admin","Full Tool","Read-Only"].map(a => <button key={a} onClick={()=>setUsers(us=>us.map((x,j)=>j===i?{...x,access:a}:x))} aria-pressed={u.access===a} style={{padding:"3px 8px",borderRadius:5,fontSize:10,cursor:"pointer",border:"1px solid",background:u.access===a?P:"transparent",borderColor:u.access===a?P:"#e2e8f0",color:u.access===a?"white":"#64748b"}}>{a}</button>)}</div>
-              <button onClick={()=>setUsers(us=>us.filter((_,j)=>j!==i))} aria-label={`Remove user ${u.firstName||u.email||i+1}`} style={{background:"transparent",border:"none",color:"#ef4444",cursor:"pointer",fontSize:12}}>✕</button>
+              <button onClick={()=>setUsers(us=>us.filter((_,j)=>j!==i))} aria-label={L("expRemoveUser",uiLang,{name:u.firstName||u.email||i+1})} style={{background:"transparent",border:"none",color:"#ef4444",cursor:"pointer",fontSize:12}}>✕</button>
             </div>
           </div>)}
-          {addBtn("+ Add user", ()=>setUsers(u=>[...u,emptyUser()]))}
+          {addBtn(L("expAddUser",uiLang), ()=>setUsers(u=>[...u,emptyUser()]))}
         </Section>
-        <Section title="What we'll track" badge={topics.length} defaultOpen={topics.length===0||unconfirmed>0}>
-          {topics.length===0 && <div style={{fontSize:12,color:"#64748b",fontStyle:"italic",marginBottom:8}}>No topics captured.</div>}
-          {unconfirmed>0 && <div style={{fontSize:11,color:"#92400e",background:"#fffbeb",border:"1px solid #fde68a",borderRadius:7,padding:"7px 10px",marginBottom:10,display:"flex",gap:6}}><span>⚠</span><span>{unconfirmed} topic{unconfirmed!==1?"s were":" was"} suggested by the assistant. Confirm or drop {unconfirmed!==1?"them":"it"} before handing off.</span></div>}
+        <Section title={L("expSecTrack",uiLang)} badge={topics.length} defaultOpen={topics.length===0||unconfirmed>0}>
+          {topics.length===0 && <div style={{fontSize:12,color:"#64748b",fontStyle:"italic",marginBottom:8}}>{L("expNoTopics",uiLang)}</div>}
+          {unconfirmed>0 && <div style={{fontSize:11,color:"#92400e",background:"#fffbeb",border:"1px solid #fde68a",borderRadius:7,padding:"7px 10px",marginBottom:10,display:"flex",gap:6}}><span>⚠</span><span>{L(unconfirmed!==1?"expUnconfirmedMany":"expUnconfirmedOne",uiLang,{n:unconfirmed})}</span></div>}
           {topics.map((tp,i) => { const guess = !tp.confirmed; return <div key={tp.id} style={{background:guess?"#fffbeb":"#f0fdf4",border:`1px solid ${guess?"#fde68a":"#bbf7d0"}`,borderRadius:8,padding:"10px 12px",marginBottom:8}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,marginBottom:6}}>
-              <div style={{fontSize:10,fontWeight:700,display:"flex",alignItems:"center",gap:5,color:guess?"#d97706":"#16a34a",textTransform:"uppercase",letterSpacing:"0.04em"}}><span>{guess?"⚠":"✓"}</span>{guess?"Assistant guess":"Confirmed"}</div>
+              <div style={{fontSize:10,fontWeight:700,display:"flex",alignItems:"center",gap:5,color:guess?"#d97706":"#16a34a",textTransform:"uppercase",letterSpacing:"0.04em"}}><span>{guess?"⚠":"✓"}</span>{guess?L("expGuess",uiLang):L("expConfirmed",uiLang)}</div>
               {guess
                 ? <div style={{display:"flex",gap:6}}>
-                    <button onClick={()=>confirmTopic(i,true)} style={{background:P,color:"#fff",border:"none",borderRadius:6,padding:"4px 10px",fontSize:11,fontWeight:600,cursor:"pointer"}}>Confirm</button>
-                    <button onClick={()=>setTopics(ts=>ts.filter((_,j)=>j!==i))} style={{background:"transparent",border:"1px solid #e2e8f0",borderRadius:6,padding:"4px 9px",fontSize:11,color:"#64748b",cursor:"pointer"}}>Drop</button>
+                    <button onClick={()=>confirmTopic(i,true)} style={{background:P,color:"#fff",border:"none",borderRadius:6,padding:"4px 10px",fontSize:11,fontWeight:600,cursor:"pointer"}}>{L("expConfirm",uiLang)}</button>
+                    <button onClick={()=>setTopics(ts=>ts.filter((_,j)=>j!==i))} style={{background:"transparent",border:"1px solid #e2e8f0",borderRadius:6,padding:"4px 9px",fontSize:11,color:"#64748b",cursor:"pointer"}}>{L("expDrop",uiLang)}</button>
                   </div>
-                : <button onClick={()=>setTopics(ts=>ts.filter((_,j)=>j!==i))} aria-label={`Remove topic ${tp.name||i+1}`} style={{background:"transparent",border:"none",color:"#ef4444",cursor:"pointer",fontSize:12,flexShrink:0}}>✕</button>}
+                : <button onClick={()=>setTopics(ts=>ts.filter((_,j)=>j!==i))} aria-label={L("expRemoveTopic",uiLang,{name:tp.name||i+1})} style={{background:"transparent",border:"none",color:"#ef4444",cursor:"pointer",fontSize:12,flexShrink:0}}>✕</button>}
             </div>
             <div>
-              <input value={tp.name||""} placeholder="Topic name" onChange={e=>setTopics(ts=>ts.map((x,j)=>j===i?{...x,name:e.target.value}:x))} style={{width:"100%",border:"none",borderBottom:"1px solid #e2e8f0",fontSize:13,fontWeight:600,outline:"none",background:"transparent",marginBottom:6,padding:"2px 0"}}/>
-              <input value={tp.keywords||""} placeholder="Keywords…" onChange={e=>setTopics(ts=>ts.map((x,j)=>j===i?{...x,keywords:e.target.value}:x))} style={{width:"100%",border:"none",borderBottom:"1px solid #e2e8f0",fontSize:12,outline:"none",background:"transparent",padding:"2px 0",marginBottom:6}}/>
-              <input value={tp.rationale||tp.comments||""} placeholder="Rationale / comments…" onChange={e=>setTopics(ts=>ts.map((x,j)=>j===i?{...x,rationale:e.target.value,comments:e.target.value}:x))} style={{width:"100%",border:"none",fontSize:11,outline:"none",background:"transparent",padding:"2px 0",color:"#64748b",fontStyle:"italic"}}/>
+              <input value={tp.name||""} placeholder={L("expTopicName",uiLang)} onChange={e=>setTopics(ts=>ts.map((x,j)=>j===i?{...x,name:e.target.value}:x))} style={{width:"100%",border:"none",borderBottom:"1px solid #e2e8f0",fontSize:13,fontWeight:600,outline:"none",background:"transparent",marginBottom:6,padding:"2px 0"}}/>
+              <input value={tp.keywords||""} placeholder={L("expKeywords",uiLang)} onChange={e=>setTopics(ts=>ts.map((x,j)=>j===i?{...x,keywords:e.target.value}:x))} style={{width:"100%",border:"none",borderBottom:"1px solid #e2e8f0",fontSize:12,outline:"none",background:"transparent",padding:"2px 0",marginBottom:6}}/>
+              <input value={tp.rationale||tp.comments||""} placeholder={L("expRationale",uiLang)} onChange={e=>setTopics(ts=>ts.map((x,j)=>j===i?{...x,rationale:e.target.value,comments:e.target.value}:x))} style={{width:"100%",border:"none",fontSize:11,outline:"none",background:"transparent",padding:"2px 0",color:"#64748b",fontStyle:"italic"}}/>
             </div>
           </div>; })}
-          {addBtn("+ Add topic", ()=>setTopics(ts=>[...ts,emptyTopic()]))}
-          <PasteImport label="Have a list already? Paste it" placeholder={"One topic per line. Optionally add keywords and a note separated by | — e.g. Nike | \"Nike\" OR @Nike | main competitor"} onImport={lines=>setTopics(ts=>[...ts,...lines.map((l,i)=>{ const p=l.split("|").map(s=>s.trim()); return {name:p[0]||"",keywords:p[1]||"",rationale:p[2]||"",comments:p[2]||"Imported from client list",id:Date.now()+i,confirmed:true}; })])}/>
+          {addBtn(L("expAddTopic",uiLang), ()=>setTopics(ts=>[...ts,emptyTopic()]))}
+          <PasteImport label={L("expPasteLabel",uiLang)} placeholder={L("expPasteTopicPh",uiLang)} lang={uiLang} onImport={lines=>setTopics(ts=>[...ts,...lines.map((l,i)=>{ const p=l.split("|").map(s=>s.trim()); return {name:p[0]||"",keywords:p[1]||"",rationale:p[2]||"",comments:p[2]||"Imported from client list",id:Date.now()+i,confirmed:true}; })])}/>
         </Section>
-        <Section title="Where we'll look" badge={chans.length} defaultOpen={false}>
-          {chans.length===0 && <div style={{fontSize:12,color:"#64748b",fontStyle:"italic",marginBottom:8}}>No channels captured.</div>}
+        <Section title={L("expSecLook",uiLang)} badge={chans.length} defaultOpen={false}>
+          {chans.length===0 && <div style={{fontSize:12,color:"#64748b",fontStyle:"italic",marginBottom:8}}>{L("expNoChannels",uiLang)}</div>}
           {/* flexWrap + a minimum basis: four fields forced into one row collapse to
               ~55px each inside the modal on a phone — unreadable and uneditable. */}
           {chans.map((ch,i) => <div key={ch.id} style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:8,alignItems:"center"}}>
-            {[["author","Name / handle"],["type","Platform"],["url","URL"],["owned","Owned or competitor?"]].map(([k,lb]) => <input key={k} value={ch[k]||""} placeholder={lb} aria-label={lb} onChange={e=>setChans(cs=>cs.map((x,j)=>j===i?{...x,[k]:e.target.value}:x))} style={{flex:"1 1 140px",minWidth:0,border:"1px solid #e2e8f0",borderRadius:6,padding:"6px 8px",fontSize:11,outline:"none"}}/>)}
-            <button onClick={()=>setChans(cs=>cs.filter((_,j)=>j!==i))} aria-label={`Remove channel ${ch.author||ch.url||i+1}`} style={{background:"transparent",border:"none",color:"#ef4444",cursor:"pointer",fontSize:12,flexShrink:0}}>✕</button>
+            {[["author",L("expChName",uiLang)],["type",L("expChPlatform",uiLang)],["url",L("expChUrl",uiLang)],["owned",L("expChOwned",uiLang)]].map(([k,lb]) => <input key={k} value={ch[k]||""} placeholder={lb} aria-label={lb} onChange={e=>setChans(cs=>cs.map((x,j)=>j===i?{...x,[k]:e.target.value}:x))} style={{flex:"1 1 140px",minWidth:0,border:"1px solid #e2e8f0",borderRadius:6,padding:"6px 8px",fontSize:11,outline:"none"}}/>)}
+            <button onClick={()=>setChans(cs=>cs.filter((_,j)=>j!==i))} aria-label={L("expRemoveChannel",uiLang,{name:ch.author||ch.url||i+1})} style={{background:"transparent",border:"none",color:"#ef4444",cursor:"pointer",fontSize:12,flexShrink:0}}>✕</button>
           </div>)}
-          {addBtn("+ Add channel", ()=>setChans(cs=>[...cs,{...emptyChan(),id:Date.now()}]))}
-          <PasteImport label="Have a list already? Paste it" placeholder={"One channel per line — a URL, a name, or both, e.g. Nike https://twitter.com/nike"} onImport={lines=>setChans(cs=>[...cs,...lines.map((l,i)=>{ const u=l.match(URL_RE)?.[0]||""; const author=l.replace(u,"").replace(/[|,]/g," ").trim(); return {author:author||"",type:guessChanType(u),url:u,owned:"",id:Date.now()+i}; })])}/>
+          {addBtn(L("expAddChannel",uiLang), ()=>setChans(cs=>[...cs,{...emptyChan(),id:Date.now()}]))}
+          <PasteImport label={L("expPasteLabel",uiLang)} placeholder={L("expPasteChannelPh",uiLang)} lang={uiLang} onImport={lines=>setChans(cs=>[...cs,...lines.map((l,i)=>{ const u=l.match(URL_RE)?.[0]||""; const author=l.replace(u,"").replace(/[|,]/g," ").trim(); return {author:author||"",type:guessChanType(u),url:u,owned:"",id:Date.now()+i}; })])}/>
         </Section>
-        <Section title="Reports and alerts" badge={reports.length+alerts.length} defaultOpen={false}>
-          <div style={{fontSize:11,fontWeight:700,color:"#64748b",textTransform:"uppercase",letterSpacing:"0.04em",marginBottom:6}}>Reports and dashboards</div>
-          {reports.length===0 && <div style={{fontSize:12,color:"#64748b",fontStyle:"italic",marginBottom:8}}>No reports captured.</div>}
+        <Section title={L("expSecReports",uiLang)} badge={reports.length+alerts.length} defaultOpen={false}>
+          <div style={{fontSize:11,fontWeight:700,color:"#64748b",textTransform:"uppercase",letterSpacing:"0.04em",marginBottom:6}}>{L("expReportsHdr",uiLang)}</div>
+          {reports.length===0 && <div style={{fontSize:12,color:"#64748b",fontStyle:"italic",marginBottom:8}}>{L("expNoReports",uiLang)}</div>}
           {reports.map((r,i) => <div key={r.id} style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:8,alignItems:"center"}}>
-            {[["name","Report name"],["objective","Objective"],["details","Details"],["comments","Comments"]].map(([k,lb]) => <input key={k} value={r[k]||""} placeholder={lb} aria-label={lb} onChange={e=>setReports(rs=>rs.map((x,j)=>j===i?{...x,[k]:e.target.value}:x))} style={{flex:"1 1 140px",minWidth:0,border:"1px solid #e2e8f0",borderRadius:6,padding:"6px 8px",fontSize:11,outline:"none"}}/>)}
-            <button onClick={()=>setReports(rs=>rs.filter((_,j)=>j!==i))} aria-label={`Remove report ${r.name||i+1}`} style={{background:"transparent",border:"none",color:"#ef4444",cursor:"pointer",fontSize:12,flexShrink:0}}>✕</button>
+            {[["name",L("expRepName",uiLang)],["objective",L("expObjective",uiLang)],["details",L("expDetails",uiLang)],["comments",L("expComments",uiLang)]].map(([k,lb]) => <input key={k} value={r[k]||""} placeholder={lb} aria-label={lb} onChange={e=>setReports(rs=>rs.map((x,j)=>j===i?{...x,[k]:e.target.value}:x))} style={{flex:"1 1 140px",minWidth:0,border:"1px solid #e2e8f0",borderRadius:6,padding:"6px 8px",fontSize:11,outline:"none"}}/>)}
+            <button onClick={()=>setReports(rs=>rs.filter((_,j)=>j!==i))} aria-label={L("expRemoveReport",uiLang,{name:r.name||i+1})} style={{background:"transparent",border:"none",color:"#ef4444",cursor:"pointer",fontSize:12,flexShrink:0}}>✕</button>
           </div>)}
-          {addBtn("+ Add report", ()=>setReports(rs=>[...rs,{...emptyReport(),id:Date.now()}]))}
-          <div style={{fontSize:11,fontWeight:700,color:"#64748b",textTransform:"uppercase",letterSpacing:"0.04em",margin:"14px 0 6px"}}>Alerts</div>
-          {alerts.length===0 && <div style={{fontSize:12,color:"#64748b",fontStyle:"italic",marginBottom:8}}>No alerts captured.</div>}
+          {addBtn(L("expAddReport",uiLang), ()=>setReports(rs=>[...rs,{...emptyReport(),id:Date.now()}]))}
+          <div style={{fontSize:11,fontWeight:700,color:"#64748b",textTransform:"uppercase",letterSpacing:"0.04em",margin:"14px 0 6px"}}>{L("expAlertsHdr",uiLang)}</div>
+          {alerts.length===0 && <div style={{fontSize:12,color:"#64748b",fontStyle:"italic",marginBottom:8}}>{L("expNoAlerts",uiLang)}</div>}
           {alerts.map((a,i) => <div key={a.id} style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:8,alignItems:"center"}}>
-            {[["name","Alert name"],["type","Type"],["details","Details"],["comments","Comments"]].map(([k,lb]) => <input key={k} value={a[k]||""} placeholder={lb} aria-label={lb} onChange={e=>setAlerts(as=>as.map((x,j)=>j===i?{...x,[k]:e.target.value}:x))} style={{flex:"1 1 140px",minWidth:0,border:"1px solid #e2e8f0",borderRadius:6,padding:"6px 8px",fontSize:11,outline:"none"}}/>)}
-            <button onClick={()=>setAlerts(as=>as.filter((_,j)=>j!==i))} aria-label={`Remove alert ${a.name||i+1}`} style={{background:"transparent",border:"none",color:"#ef4444",cursor:"pointer",fontSize:12,flexShrink:0}}>✕</button>
+            {[["name",L("expAlName",uiLang)],["type",L("expType",uiLang)],["details",L("expDetails",uiLang)],["comments",L("expComments",uiLang)]].map(([k,lb]) => <input key={k} value={a[k]||""} placeholder={lb} aria-label={lb} onChange={e=>setAlerts(as=>as.map((x,j)=>j===i?{...x,[k]:e.target.value}:x))} style={{flex:"1 1 140px",minWidth:0,border:"1px solid #e2e8f0",borderRadius:6,padding:"6px 8px",fontSize:11,outline:"none"}}/>)}
+            <button onClick={()=>setAlerts(as=>as.filter((_,j)=>j!==i))} aria-label={L("expRemoveAlert",uiLang,{name:a.name||i+1})} style={{background:"transparent",border:"none",color:"#ef4444",cursor:"pointer",fontSize:12,flexShrink:0}}>✕</button>
           </div>)}
-          {addBtn("+ Add alert", ()=>setAlerts(as=>[...as,{...emptyAlert(),id:Date.now()}]))}
+          {addBtn(L("expAddAlert",uiLang), ()=>setAlerts(as=>[...as,{...emptyAlert(),id:Date.now()}]))}
         </Section>
       </div>
       {/* flexWrap: on a narrow phone the readiness line + three actions cannot fit one
           row; without wrapping the Send button gets crushed at the conversion moment. */}
       <div style={{padding:"16px 24px",borderTop:"1px solid #e2e8f0",display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexShrink:0,flexWrap:"wrap"}}>
-        <div style={{fontSize:11,color:ready?"#16a34a":"#92400e",flex:"1 1 180px",minWidth:0}}>{ready?"✓ Ready to send":`Still needed: ${gaps.slice(0,3).join(", ")}${gaps.length>3?` +${gaps.length-3} more`:""}`}</div>
+        <div style={{fontSize:11,color:ready?"#16a34a":"#92400e",flex:"1 1 180px",minWidth:0}}>{ready?L("expFooterReady",uiLang):`${L("expStillNeeded",uiLang,{gaps:gaps.slice(0,3).join(", ")})}${gaps.length>3?` ${L("expMore",uiLang,{n:gaps.length-3})}`:""}`}</div>
         <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
-          {sendErr && <div style={{fontSize:11,color:"#dc2626",maxWidth:240,lineHeight:1.4}}>{sendErr==="send-failed"?"We couldn’t send your brief just now. Please check your connection and press Send again.":sendErr}</div>}
-          <button onClick={onClose} style={{background:"transparent",border:"1px solid #e2e8f0",borderRadius:8,padding:"9px 20px",fontSize:13,color:"#64748b",cursor:"pointer"}}>Cancel</button>
+          {sendErr && <div style={{fontSize:11,color:"#dc2626",maxWidth:240,lineHeight:1.4}}>{sendErr==="send-failed"?L("expSendFailed",uiLang):sendErr}</div>}
+          <button onClick={onClose} style={{background:"transparent",border:"1px solid #e2e8f0",borderRadius:8,padding:"9px 20px",fontSize:13,color:"#64748b",cursor:"pointer"}}>{L("expCancel",uiLang)}</button>
           {/* Pre-send, Download is deliberately a quiet text link: a prominent Download
               button beside Send invites "download = saved = done", and the brief never
               reaches the team. Post-send it stays available via the FinishCard. */}
-          {!(sent && sheetLink) && <button onClick={()=>ready&&onExport(merged,users)} disabled={!ready} style={{background:"transparent",border:"none",color:ready?"#64748b":"#cbd5e1",padding:"9px 6px",fontSize:12,textDecoration:"underline",cursor:ready?"pointer":"not-allowed"}}>Download a copy</button>}
-          <button onClick={()=>ready&&!sending&&onSend(merged,users)} disabled={!ready||sending} style={{background:ready?A:"#e2e8f0",color:ready?"white":"#94a3b8",border:"none",borderRadius:8,padding:"9px 24px",fontSize:13,fontWeight:600,cursor:ready&&!sending?"pointer":"not-allowed"}}>{sending?"Sending\u2026":"\ud83d\udce8 Send to my Lumen team"}</button>
+          {!(sent && sheetLink) && <button onClick={()=>ready&&onExport(merged,users)} disabled={!ready} style={{background:"transparent",border:"none",color:ready?"#64748b":"#cbd5e1",padding:"9px 6px",fontSize:12,textDecoration:"underline",cursor:ready?"pointer":"not-allowed"}}>{L("expDownload",uiLang)}</button>}
+          <button onClick={()=>ready&&!sending&&onSend(merged,users)} disabled={!ready||sending} style={{background:ready?A:"#e2e8f0",color:ready?"white":"#94a3b8",border:"none",borderRadius:8,padding:"9px 24px",fontSize:13,fontWeight:600,cursor:ready&&!sending?"pointer":"not-allowed"}}>{sending?L("expSending",uiLang):L("expSend",uiLang)}</button>
         </div>
       </div>
     </div>
@@ -1600,7 +2164,6 @@ function FinishCard({ C, cdata, setShowExport, linkCopied, setLinkCopied, sent, 
 function OnboardingApp({ seed, seedId, seedError, onBriefSent, onSeeProserv }) {
   const [theme,setTheme]       = useState("light");
   const [sound,setSound]       = useState(false);
-  const [persona,setPersona]   = useState("strategist");
   // Clamp the seed's language to a SUPPORTED UI language. seed.language can carry a
   // monitoring-only language (LANG_OPT has 12; the UI shell only localizes the 6 in
   // UI_LANGS) or, via a tampered/stale seed, junk. An unsupported value left as-is
@@ -1620,7 +2183,6 @@ function OnboardingApp({ seed, seedId, seedError, onBriefSent, onSeeProserv }) {
   const [checked,setChecked]   = useState(false);
   const [confirmFresh,setConfirmFresh] = useState(false); // two-step guard: "Start fresh" wipes the saved draft
   const [collapsed,setCollapsed]= useState(true);
-  const [rewind,setRewind]     = useState(null);
   const [showExport,setShowExport]= useState(false);
   const [cdata,setCdata]       = useState(emptyCdata());
   const [retryMsg,setRetryMsg] = useState(null);
@@ -1630,8 +2192,6 @@ function OnboardingApp({ seed, seedId, seedError, onBriefSent, onSeeProserv }) {
   const [draftOk,setDraftOk]   = useState(lsProbe); // is on-device draft saving actually working?
   const [showPanel,setShowPanel] = useState(() => typeof window !== "undefined" && window.innerWidth > 1080);
   const [linkCopied,setLinkCopied] = useState(false);
-  const [smoke,setSmoke]       = useState(null);
-  const [showSmokeMenu,setShowSmokeMenu] = useState(false);
   const [sent,setSent]         = useState(false);
   const [sending,setSending]   = useState(false);
   const [sendErr,setSendErr]   = useState(null);
@@ -1643,6 +2203,12 @@ function OnboardingApp({ seed, seedId, seedError, onBriefSent, onSeeProserv }) {
   const botRef  = useRef(null);
   const histRef = useRef([]);
   const taRef   = useRef(null);
+  // Focus management for newly rendered interactive content (widget / quick replies):
+  // refs to the latest assistant turn's interactive region, plus a signature of the
+  // last content we moved focus to, so we only steal focus on genuinely NEW content.
+  const lastWidgetRef = useRef(null);
+  const qrRef = useRef(null);
+  const focusedInteractiveKey = useRef(null);
   const attachRef = useRef(null); // hidden file input for the composer attach affordance
   const busyRef = useRef(false);  // synchronous in-flight guard: blocks a second send (widget double-tap, type-during-wait) that would queue two consecutive user turns and 400 the API
   // Synchronous mirror of the `attaching` state. File extraction runs BEFORE the
@@ -1654,7 +2220,6 @@ function OnboardingApp({ seed, seedId, seedError, onBriefSent, onSeeProserv }) {
   const msgRef  = useRef(null);
   const prevPct = useRef(0);
   const sndRef  = useRef(sound);
-  const personaRef = useRef(persona);
   const prevSecRef = useRef(null);
   const sidRef  = useRef(null);
   // seedId is stable for this component's life (LiveChat mounts OnboardingApp only
@@ -1670,9 +2235,7 @@ function OnboardingApp({ seed, seedId, seedError, onBriefSent, onSeeProserv }) {
   const startedAtRef = useRef(null);
   const saveT   = useRef(null);
   const wRef    = useRef(wState);
-  const smokeStop = useRef(false);
   useEffect(() => { sndRef.current = sound; }, [sound]);
-  useEffect(() => { personaRef.current = persona; }, [persona]);
   useEffect(() => { wRef.current = wState; }, [wState]);
   // Keep the seedId ref synced to the prop like the refs above. seedId is stable
   // in the live app (LiveChat mounts this only after the seed resolves), but
@@ -1695,6 +2258,30 @@ function OnboardingApp({ seed, seedId, seedError, onBriefSent, onSeeProserv }) {
     const nearBottom = !el || (el.scrollHeight - el.scrollTop - el.clientHeight < 200);
     if (nearBottom || loading) botRef.current?.scrollIntoView({behavior:REDUCE_MOTION?"auto":"smooth"});
   }, [messages, loading]);
+  // A11y: when a new assistant turn introduces interactive content (a widget or a
+  // quick-reply set), move keyboard/SR focus to its first control so it isn't
+  // stranded in the composer. Fires only when the interactive content is genuinely
+  // NEW (keyed on the latest message index + its widget/quick-reply identity), never
+  // on ordinary re-renders, and uses preventScroll so it doesn't fight the
+  // near-bottom auto-scroll above (which already honours REDUCE_MOTION).
+  useEffect(() => {
+    if (loading) return;
+    const lastMsg = messages[messages.length-1];
+    if (!lastMsg || lastMsg.role !== "assistant") return;
+    const widgets = lastMsg.widgets || [];
+    const qrs = lastMsg.quickReplies || [];
+    if (widgets.length === 0 && qrs.length === 0) return;
+    const key = `${messages.length-1}|w:${widgets.join(",")}|q:${qrs.length}`;
+    if (focusedInteractiveKey.current === key) return;
+    const container = widgets.length > 0 ? lastWidgetRef.current : qrRef.current;
+    if (!container) return; // guard: region not mounted yet (e.g. QR hidden while loading)
+    focusedInteractiveKey.current = key;
+    const focusable = container.querySelector('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+    const target = focusable || container;
+    if (target && typeof target.focus === "function") {
+      try { target.focus({ preventScroll: true }); } catch { target.focus(); }
+    }
+  }, [messages, loading]);
   useEffect(() => { if (progress.percent===100&&prevPct.current<100&&sndRef.current) chime(); prevPct.current=progress.percent; }, [progress.percent, chime]);
   // Seeded sessions get a bespoke tab title so screenshots and tab-switching feel
   // prepared-for-you rather than generic (B6).
@@ -1703,7 +2290,14 @@ function OnboardingApp({ seed, seedId, seedError, onBriefSent, onSeeProserv }) {
   // On mount, offer to resume an in-progress draft saved on this device.
   useEffect(() => {
     const draft = lsLoadDraft(seedId);
-    if (draft) setSaved(draft);
+    if (draft) {
+      setSaved(draft);
+      // Render the "Welcome back" screen in the language the draft was saved in.
+      // For a non-seeded return uiLang defaults to English until resume restores
+      // it, so without this the resume screen would greet a French/Arabic/... client
+      // in English. Clamp to a supported UI language (L() also falls back safely).
+      if (draft.uiLang && UI_LANGS.some(l => l.code === draft.uiLang)) setUiLang(draft.uiLang);
+    }
     setChecked(true);
   }, []);
 
@@ -1769,95 +2363,6 @@ function OnboardingApp({ seed, seedId, seedError, onBriefSent, onSeeProserv }) {
     apiCountRef.current = 0; usageRef.current = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
   }, []);
 
-  const loadTestSession = useCallback(() => {
-    const tm = [
-      {role:"assistant",content:"Hi! I'm your Lumen onboarding assistant. To get started, what's your company name?",timestamp:"09:00",widgets:[],quickReplies:[],raw:""},
-      {role:"user",content:"Acme Corp",timestamp:"09:00",raw:"Acme Corp"},
-      {role:"assistant",content:"Great to meet you, Acme Corp. What's the best contact email for the setup?",timestamp:"09:01",widgets:[],quickReplies:[],raw:""},
-      {role:"user",content:"jane@acmecorp.com",timestamp:"09:01",raw:"jane@acmecorp.com"},
-      {role:"assistant",content:"Perfect. From the name I'm guessing you're in consumer goods or retail, is that right? And before we dive in: what are you hoping to get out of Lumen?",timestamp:"09:02",widgets:[],quickReplies:[],raw:""},
-      {role:"user",content:"Yes, consumer goods, mainly footwear and apparel. We want to protect our brand reputation, keep ahead of competitors like Nike, Adidas and Puma, and catch any customer issues before they blow up.",timestamp:"09:02",raw:"Yes, consumer goods, mainly footwear and apparel. We want to protect our brand reputation, keep ahead of competitors like Nike, Adidas and Puma, and catch any customer issues before they blow up."},
-      {role:"assistant",content:"That's really helpful. Brand reputation, competitive tracking, and early issue detection gives us a clear direction. Would you like me to guide you section by section, or would you rather share what you're tracking and have me build recommendations?",timestamp:"09:03",widgets:[],quickReplies:[],raw:""},
-      {role:"user",content:"✓ PATH: Guided path",isWidget:true,timestamp:"09:03"},
-      {role:"assistant",content:"Great, we'll go section by section. Do you have any existing queries from another tool you'd like to migrate?",timestamp:"09:04",widgets:[],quickReplies:[],raw:""},
-      {role:"user",content:"✓ QUERIES: Skipped",isWidget:true,timestamp:"09:04"},
-      {role:"assistant",content:"No problem, we'll build fresh. Before the structured bits, let's line up what to track. Beyond your own brand, what should we monitor?",timestamp:"09:05",widgets:[],quickReplies:[],raw:""},
-      {role:"user",content:"Our brand and product lines, our three competitors, our summer campaign, the broader sustainability-in-fashion conversation, and customer service complaints.",timestamp:"09:05",raw:"Our brand and product lines, our three competitors, our summer campaign, the broader sustainability-in-fashion conversation, and customer service complaints."},
-      {role:"assistant",content:"Strong list. That gives us eight topics spanning your brand, your product lines, the three competitors, your summer campaign, an industry theme, and a customer-service risk lens. Which geographic markets matter most to you?",timestamp:"09:06",widgets:[],quickReplies:[],raw:""},
-      {role:"user",content:"✓ MARKETS: United States, United Kingdom, France, Germany, Canada, Australia",isWidget:true,timestamp:"09:06"},
-      {role:"assistant",content:"Six markets across North America, Europe and APAC. Which languages should we monitor?",timestamp:"09:07",widgets:[],quickReplies:[],raw:""},
-      {role:"user",content:"✓ LANGUAGES: English, French, German",isWidget:true,timestamp:"09:07"},
-      {role:"assistant",content:"Given your goal of protecting brand reputation, tracking competitors, and catching issues early, I'd put Reputation Management first, then Competitive Intelligence, then Issue Tracking. Pick up to 3 and set the order — your top priority decides what we build first.",timestamp:"09:08",widgets:[],quickReplies:[],raw:""},
-      {role:"user",content:"✓ OBJECTIVES: 1. Reputation Management, 2. Competitive Intelligence, 3. Issue Tracking",isWidget:true,timestamp:"09:08"},
-      {role:"assistant",content:"Priorities locked: Reputation Management first, then Competitive Intelligence, then Issue Tracking. Since issue tracking made your top 3, what kind of issue are you most concerned about catching early, product complaints, executive reputation, or something else?",timestamp:"09:09",widgets:[],quickReplies:[],raw:""},
-      {role:"user",content:"Mostly product complaints and anything that could escalate quickly on social.",timestamp:"09:09",raw:"Mostly product complaints and anything that could escalate quickly on social."},
-      {role:"assistant",content:"Quick check so far: Acme Corp, consumer goods (footwear and apparel), focused on brand reputation, competitive intelligence and issue tracking (in that priority order), tracking eight topics (your brand, product lines, Nike, Adidas, Puma, your summer campaign, sustainability in fashion, and customer-service issues) across six markets in three languages. Does that look right?",timestamp:"09:10",widgets:[],quickReplies:[],raw:""},
-      {role:"user",content:"Yes, that's right.",timestamp:"09:10",raw:"Yes, that's right."},
-      {role:"assistant",content:"Great. Which teams or departments will be using Lumen?",timestamp:"09:11",widgets:[],quickReplies:[],raw:""},
-      {role:"user",content:"✓ TEAMS: Marketing, Communications, PR, Brand, Social Media, Customer Experience",isWidget:true,timestamp:"09:11"},
-      {role:"assistant",content:"And what's your primary timezone for scheduling reports and alerts?",timestamp:"09:12",widgets:[],quickReplies:[],raw:""},
-      {role:"user",content:"✓ TIMEZONE: GMT / UTC",isWidget:true,timestamp:"09:12"},
-      {role:"assistant",content:"Now let's capture your social channels. Which accounts should we monitor, your own and any competitors?",timestamp:"09:13",widgets:[],quickReplies:[],raw:""},
-      {role:"user",content:"Our Twitter, LinkedIn, Instagram and Facebook, plus the main Twitter accounts for Nike and Adidas and Puma's Instagram.",timestamp:"09:13",raw:"Our Twitter, LinkedIn, Instagram and Facebook, plus the main Twitter accounts for Nike and Adidas and Puma's Instagram."},
-      {role:"assistant",content:"Updating the picture: six markets in English, French and German, six teams from Marketing to Customer Experience, monitoring your four owned channels plus three competitor accounts. All good before we finish up?",timestamp:"09:14",widgets:[],quickReplies:[],raw:""},
-      {role:"user",content:"Looks good.",timestamp:"09:14",raw:"Looks good."},
-      {role:"assistant",content:"Would you like any dashboards, reports, or alerts? For example a brand health dashboard, a competitive share-of-voice report, or a crisis alert on negative sentiment spikes?",timestamp:"09:15",widgets:[],quickReplies:[],raw:""},
-      {role:"user",content:"Yes please: a brand health dashboard, a competitive share-of-voice report, a weekly executive summary, a crisis alert for negative sentiment, and an alert when a competitor's campaign spikes.",timestamp:"09:15",raw:"Yes please: a brand health dashboard, a competitive share-of-voice report, a weekly executive summary, a crisis alert for negative sentiment, and an alert when a competitor's campaign spikes."},
-      {role:"assistant",content:"Almost there. Who needs access to Lumen, and at what level?",timestamp:"09:16",widgets:[],quickReplies:[],raw:""},
-      {role:"user",content:"✓ USERS: 5 user(s)",isWidget:true,timestamp:"09:16"},
-      {role:"assistant",content:"Here's the full picture for Acme Corp: focused on brand reputation, competitive intelligence and issue tracking, tracking eight topics across your brand, product lines, three competitors, a campaign, an industry theme and customer-service issues, in six markets across three languages, for six teams, with four reports and dashboards, two alerts, and five users. Does that sound right, or is there anything you'd like to adjust?",timestamp:"09:17",widgets:[],quickReplies:["Yes, looks good","I'd like to adjust something"],raw:""},
-      {role:"user",content:"Yes, looks good",timestamp:"09:17",raw:"Yes, looks good",isChip:true,chipLabel:"Yes, looks good"},
-      {role:"assistant",content:"Wonderful! Thank you for completing your Lumen onboarding. Your setup brief is ready to download below, just click the button to review and download it. A consultant will be in touch shortly to arrange a review session and kick off your implementation. In the meantime, one thing you can get a head start on is generating access tokens for your channels: see [token basics](https://helpcenter.talkwalker.com/s/article/token-basics).",timestamp:"09:18",widgets:[],quickReplies:[],raw:""},
-    ];
-    const tw = {
-      "3-MARKETS":    {submitted:true,data:["United States","United Kingdom","France","Germany","Canada","Australia"]},
-      "3-LANGUAGES":  {submitted:true,data:["English","French","German"]},
-      "3-OBJECTIVES": {submitted:true,data:{ranked:["Reputation Management","Competitive Intelligence","Issue Tracking"],details:"Most concerned about product complaints escalating quickly on social."}},
-      "3-TEAMS":      {submitted:true,data:["Marketing","Communications","PR","Brand","Social Media","Customer Experience"]},
-      "3-TIMEZONE":   {submitted:true,data:["GMT / UTC"]},
-      "3-USERS":      {submitted:true,data:[
-        {firstName:"Jane",lastName:"Smith",email:"jane@acmecorp.com",role:"Marketing Director",access:"Admin"},
-        {firstName:"John",lastName:"Doe",email:"john@acmecorp.com",role:"PR Manager",access:"Full Tool"},
-        {firstName:"Marie",lastName:"Laurent",email:"marie@acmecorp.com",role:"Comms Lead (FR)",access:"Full Tool"},
-        {firstName:"Tom",lastName:"Becker",email:"tom@acmecorp.com",role:"Social Media Manager",access:"Full Tool"},
-        {firstName:"Sarah",lastName:"Chen",email:"sarah@acmecorp.com",role:"Insights Analyst",access:"Read-Only"},
-      ]},
-    };
-    const tc = {
-      company:  {name:"Acme Corp",email:"jane@acmecorp.com",industry:"Consumer Goods (Footwear & Apparel)",useCase:"Protect brand reputation, track competitors (Nike, Adidas, Puma), and catch customer issues early before they escalate",contact:"Jane Smith"},
-      topics: [
-        {name:"Acme Corp Brand",keywords:'"Acme Corp" OR "AcmeCorp" OR @AcmeCorp',urls:"https://acmecorp.com",hashtags:"#AcmeCorp",comments:"Primary brand monitoring"},
-        {name:"Acme Product Lines",keywords:'"Acme Air" OR "Acme Pro" OR "Acme Classic"',urls:"https://acmecorp.com/products",hashtags:"#AcmeAir",comments:"Product-level tracking"},
-        {name:"Nike",keywords:'"Nike" OR @Nike OR "Just Do It"',urls:"https://nike.com",hashtags:"#Nike",comments:"Competitor, client-confirmed"},
-        {name:"Adidas",keywords:'"Adidas" OR @adidas',urls:"https://adidas.com",hashtags:"#Adidas",comments:"Competitor, client-confirmed"},
-        {name:"Puma",keywords:'"Puma" OR @PUMA',urls:"https://puma.com",hashtags:"#Puma",comments:"Competitor, client-confirmed"},
-        {name:"Acme Summer Campaign",keywords:'"Acme Summer" OR #AcmeSummer25',urls:"",hashtags:"#AcmeSummer25",comments:"Campaign tracking, Jun to Aug"},
-        {name:"Sustainability in Fashion",keywords:'"sustainable fashion" OR "ethical sourcing" OR "circular fashion"',urls:"",hashtags:"#SustainableFashion",comments:"Industry theme"},
-        {name:"Customer Service Issues",keywords:'"Acme" AND (refund OR complaint OR "poor service" OR broken)',urls:"",hashtags:"",comments:"Risk and crisis early warning"},
-      ],
-      channels: [
-        {author:"Acme Corp",type:"Twitter/X",url:"https://twitter.com/acmecorp",owned:"Owned"},
-        {author:"Acme Corp",type:"LinkedIn",url:"https://linkedin.com/company/acmecorp",owned:"Owned"},
-        {author:"Acme Corp",type:"Instagram",url:"https://instagram.com/acmecorp",owned:"Owned"},
-        {author:"Acme Corp",type:"Facebook",url:"https://facebook.com/acmecorp",owned:"Owned"},
-        {author:"Nike",type:"Twitter/X",url:"https://twitter.com/nike",owned:"Public"},
-        {author:"Adidas",type:"Twitter/X",url:"https://twitter.com/adidas",owned:"Public"},
-        {author:"Puma",type:"Instagram",url:"https://instagram.com/puma",owned:"Public"},
-      ],
-      reports: [
-        {name:"Brand Health Dashboard",objective:"Reputation Management",details:"Real-time, all markets, sentiment and volume",comments:"Priority setup"},
-        {name:"Competitive Share of Voice",objective:"Competitive Intelligence",details:"Weekly, Acme vs Nike, Adidas, Puma",comments:""},
-        {name:"Weekly Executive Summary",objective:"Reputation Management",details:"Weekly email to leadership, top themes and movers",comments:""},
-      ],
-      alerts:  [
-        {name:"Crisis Alert",type:"Sentiment spike",details:"Negative sentiment > 20% in 1 hour",comments:"High priority"},
-        {name:"Competitor Campaign Alert",type:"Volume spike",details:"Competitor mention volume up > 50% day over day",comments:""},
-      ],
-    };
-    setStarted(true); setMessages(tm); setWState(tw); setCdata(tc); setSaved(null);
-    setProgress({percent:100,collected:{company:true,path:true,topics:true,channels:true,reports:true,users:true}});
-    histRef.current = tm.filter(m=>!m.isWidget).map(m=>({role:m.role,content:m.raw||m.content}));
-  }, []);
 
   const MAX_HIST_TURNS = 20;
 
@@ -1906,12 +2411,6 @@ function OnboardingApp({ seed, seedId, seedError, onBriefSent, onSeeProserv }) {
     return raw;
   }, [callAPI]);
 
-  // DEV/simulate only — unreachable in the live build (DEV=false hides the menu).
-  // The live proxy rejects client-supplied system prompts by design, so if this
-  // is ever re-enabled it must go through a separate dev-only endpoint.
-  const callClientAPI = useCallback(async (systemPrompt, hist) => {
-    throw new Error("simulate_unavailable_in_live_build");
-  }, []);
 
   const inferPct = useCallback(() => {
     const sub = t => Object.entries(wRef.current).some(([k,v])=>k.endsWith(`-${t}`)&&(v===true||v?.submitted));
@@ -2130,96 +2629,7 @@ function OnboardingApp({ seed, seedId, seedError, onBriefSent, onSeeProserv }) {
     : type==="USERS" && Array.isArray(data) ? data.map(u=>`${u.firstName} ${u.lastName} <${u.email}> — ${u.role||"no role"} — ${u.access}`).join("; ")
     : widgetSum(type, data);
 
-  const runSmokeTest = useCallback(async personaKey => {
-    const per = SMOKE_PERSONAS.find(p=>p.key===personaKey);
-    if (!per) return;
-    init(); smokeStop.current = false;
-    resetSession(); setStarted(true); setSmoke({label:per.label,emoji:per.emoji,turn:0});
-    // Match a real seeded session: pre-fill the captured company data and build the
-    // simulate persona + USERS auto-fill from the seed and the chosen language.
-    if (seed) setCdata(p=>({...p, company:{name:seed.company||"", email:seed.email||"", industry:seed.industry||"", useCase:"", contact:seed.contactName||""}}));
-    const smokePrompts = buildSmokePrompts(seed, uiLang);
-    const smokeWidgetData = buildSmokeWidgetData(seed);
-    const hist = [{role:"user",content:seededOpener(seed, uiLang)}];
-    const local = [];
-    const pushMsg = m => { local.push(m); setMessages([...local]); };
-    let pct = 0;
-    try {
-      for (let turn=0; turn<SMOKE_MAX_TURNS && !smokeStop.current; turn++) {
-        setSmoke({label:per.label,emoji:per.emoji,turn:turn+1});
-        setLoading(true);
-        const raw = await callAPI(hist);
-        setLoading(false);
-        const pr = parseReply(raw);
-        hist.push({role:"assistant",content:raw});
-        if (pr.progress) { setProgress(pr.progress); pct = pr.progress.percent; }
-        applyCdata(pr);
-        const aIdx = local.length;
-        pushMsg({role:"assistant",content:pr.clean,widgets:pr.widgets,topicSuggestions:pr.topicSuggestions,quickReplies:pr.quickReplies,timestamp:gts(),raw});
-        if (pct >= 100 || smokeStop.current) break;
-        await sleep(300);
-        if (pr.widgets.length > 0) {
-          const w = pr.widgets[0];
-          const data = w==="TOPICS" ? pr.topicSuggestions : smokeWidgetData[w];
-          if (data===undefined || (w==="TOPICS"&&(!data||!data.length))) {
-            setWState(p=>({...p,[`${aIdx}-${w}`]:{submitted:true,data:"__skip__"}}));
-            pushMsg({role:"user",content:`Skipped ${w}`,isWidget:true,timestamp:gts()});
-            hist.push({role:"user",content:`[Widget skipped — ${w}]`});
-          } else if (data==="__skip__") {
-            setWState(p=>({...p,[`${aIdx}-${w}`]:{submitted:true,data:"__skip__"}}));
-            pushMsg({role:"user",content:`Skipped ${w}`,isWidget:true,timestamp:gts()});
-            hist.push({role:"user",content:`[Widget skipped — ${w}]`});
-          } else {
-            const sum = widgetSum(w, data);
-            setWState(p=>({...p,[`${aIdx}-${w}`]:{submitted:true,data}}));
-            pushMsg({role:"user",content:`✓ ${w}: ${sum}`,isWidget:true,timestamp:gts()});
-            hist.push({role:"user",content:`[Widget submitted — ${w}]: ${widgetApiPayload(w, data)}`});
-          }
-        } else {
-          setLoading(true);
-          const reply = await callClientAPI(smokePrompts[per.key], hist);
-          setLoading(false);
-          if (!reply) break;
-          pushMsg({role:"user",content:reply,timestamp:gts(),raw:reply});
-          hist.push({role:"user",content:reply});
-        }
-      }
-    } catch(e) {
-      pushMsg({role:"assistant",content:"⚠ Smoke test stopped: API error. You can take over manually from here.",widgets:[],quickReplies:[],timestamp:gts(),raw:""});
-    } finally {
-      histRef.current = hist;
-      setLoading(false);
-      setSmoke(null);
-    }
-  }, [callAPI, callClientAPI, init, resetSession, applyCdata, seed, uiLang]);
 
-  const doRewind = useCallback(idx => {
-    const nm = messages.slice(0,idx+1); setMessages(nm);
-    // Strip <thought> from assistant turns when rebuilding history, exactly as the
-    // live send path does (see the stripThoughtForHistory push in sendToAPI). Using
-    // raw verbatim here re-injected every past thought block into the context on
-    // every post-rewind turn — wasted input tokens and self-referential noise. Fall
-    // back to m.content (the already-clean visible text) if a strip yields empty, so
-    // no turn goes out with empty content (the proxy rejects empty-string turns).
-    histRef.current = nm.filter(m=>!m.isWidget).map(m=>({
-      role: m.role,
-      content: m.role==="assistant" ? (stripThoughtForHistory(m.raw||m.content||"") || m.content || m.raw || "") : (m.raw||m.content||"")
-    }));
-    let rp = {percent:0,collected:{}};
-    for (let i=nm.length-1;i>=0;i--) { if (nm[i].role==="assistant"&&nm[i].raw) { const p=pProg(nm[i].raw); if(p){rp=p;break;} } }
-    setProgress(rp);
-    // Rebuild cdata from the surviving replies so data captured after the rewind
-    // point (topics, channels, company fields) doesn't linger into the brief.
-    let cd = emptyCdata();
-    for (const m of nm) { if (m.role==="assistant"&&m.raw) cd = mergeCdata(cd, parseReply(m.raw)); }
-    setCdata(cd);
-    setWState(p=>{const n={...p};Object.keys(n).forEach(k=>{if(parseInt(k.split("-")[0])>idx)delete n[k];});return n;});
-    // Reset section-divider and completion-chime trackers, else the next turn
-    // fires a spurious divider or re-chimes.
-    prevSecRef.current = rp?.section || null;
-    prevPct.current = rp?.percent || 0;
-    setRewind(null);
-  }, [messages]);
 
   const startConvo = useCallback(async () => {
     init();
@@ -2371,7 +2781,6 @@ function OnboardingApp({ seed, seedId, seedError, onBriefSent, onSeeProserv }) {
     const WHY = { MARKETS:WL("whyMarkets",uiLang), TEAMS:WL("whyTeams",uiLang), USERS:WL("whyUsers",uiLang), QUERIES:WL("whyQueries",uiLang), TOPICS:WL("whyTopics",uiLang) };
     return <div>
       {WHY[type] && <div style={{fontSize:11,color:C.muted,margin:"0 0 6px",fontStyle:"italic"}}>{WHY[type]}</div>}
-      {type==="PATH"      && <PathChoice onSubmit={d=>onWSubmit(mi,type,d)}/>}
       {type==="QUERIES"   && <QueriesWidget onSubmit={os} initialData={pd} lang={uiLang}/>}
       {type==="TOPICS"    && topicSuggestions?.length>0 && <TopicCards suggestions={topicSuggestions} onConfirm={os} onSkip={sk} lang={uiLang}/>}
       {type==="MARKETS"   && <ChipSelector options={MARKETS_OPT}  onSubmit={os} onSkip={sk} placeholder={WL("phMarket",uiLang)}   hint={WL("hintSelectAll",uiLang)}    initialData={pd||[]} lang={uiLang}/>}
@@ -2443,26 +2852,9 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
 input,textarea,select,button{font-family:inherit}
 @media (max-width:640px){input,textarea,select{font-size:16px !important}}`}</style>
 
-      {smoke && <div style={{position:"fixed",bottom:140,left:"50%",transform:"translateX(-50%)",zIndex:300,background:"#1e293b",color:"white",borderRadius:10,padding:"10px 16px",fontSize:13,display:"flex",gap:12,alignItems:"center",boxShadow:"0 4px 16px rgba(0,0,0,0.25)",whiteSpace:"nowrap"}}>
-        <span>🧪 Smoke test: {smoke.emoji} <strong>{smoke.label}</strong> · turn {smoke.turn}/{SMOKE_MAX_TURNS}</span>
-        <button onClick={()=>{smokeStop.current=true;}} style={{background:"#ef4444",border:"none",color:"white",borderRadius:6,padding:"4px 10px",fontSize:12,cursor:"pointer"}}>Stop</button>
-      </div>}
+      {showExport && <ModalBoundary onClose={()=>setShowExport(false)}><ExportModal cdata={cdata} wState={wState||{}} messages={messages} onClose={()=>setShowExport(false)} onExport={(merged,users)=>{doExport(merged,users,messages);}} onSend={handleSend} sending={sending} sendErr={sendErr} sent={sent} sheetLink={sheetLink} uiLang={uiLang}/></ModalBoundary>}
 
-      {rewind !== null && <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000}}>
-        <div style={{background:"white",borderRadius:14,padding:"24px 28px",maxWidth:360,width:"90%",boxShadow:"0 8px 32px rgba(0,0,0,0.18)"}}>
-          <div style={{fontSize:20,marginBottom:8}}>↺</div>
-          <div style={{fontWeight:700,fontSize:15,marginBottom:8,color:"#1e293b"}}>Rewind conversation?</div>
-          <div style={{fontSize:13,color:"#64748b",marginBottom:20,lineHeight:1.6}}>All messages after this point will be <strong>permanently deleted</strong>.</div>
-          <div style={{display:"flex",gap:10}}>
-            <button onClick={()=>setRewind(null)} style={{flex:1,background:"transparent",border:"1px solid #e2e8f0",borderRadius:8,padding:"9px",fontSize:13,color:"#64748b",cursor:"pointer"}}>Cancel</button>
-            <button onClick={()=>doRewind(rewind)} style={{flex:1,background:"#ef4444",border:"none",borderRadius:8,padding:"9px",fontSize:13,color:"white",fontWeight:600,cursor:"pointer"}}>Yes, rewind</button>
-          </div>
-        </div>
-      </div>}
-
-      {showExport && <ModalBoundary onClose={()=>setShowExport(false)}><ExportModal cdata={cdata} wState={wState||{}} messages={messages} onClose={()=>setShowExport(false)} onExport={(merged,users)=>{doExport(merged,users,messages);}} onSend={handleSend} sending={sending} sendErr={sendErr} sent={sent} sheetLink={sheetLink}/></ModalBoundary>}
-
-      {showPanel && started && <div style={{position:"fixed",top:56,right:0,bottom:0,width:mob?"100%":320,background:C.card,borderLeft:`1px solid ${C.border}`,zIndex:500,overflowY:"auto",padding:"16px 18px",boxShadow:sideCol?"none":"-4px 0 16px rgba(0,0,0,0.08)"}}>
+      {showPanel && started && <div style={{position:"fixed",top:56,...(uiLang==="Arabic"?{left:0,borderRight:`1px solid ${C.border}`}:{right:0,borderLeft:`1px solid ${C.border}`}),bottom:0,width:mob?"100%":320,background:C.card,zIndex:500,overflowY:"auto",padding:"16px 18px",boxShadow:sideCol?"none":`${uiLang==="Arabic"?"4px":"-4px"} 0 16px rgba(0,0,0,0.08)`}}>
         <div style={{fontSize:11,color:C.muted,margin:"0 0 12px",lineHeight:1.5,background:C.hi,borderRadius:8,padding:"8px 10px"}}>{L("correctionHint", uiLang)}</div>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
           <div style={{fontWeight:700,fontSize:14,color:C.text}}>📋 {L("panelTitle",uiLang)}</div>
@@ -2497,13 +2889,6 @@ input,textarea,select,button{font-family:inherit}
                 <span style={{fontWeight:700,fontSize:8,color:dark?"#8fa8d8":NAVY,letterSpacing:"0.02em"}}>by Talkwalker</span>
               </span>
               <span style={{color:C.muted,fontSize:12,paddingLeft:2}}>{L("hdrAssistant",uiLang)}</span>
-              {DEV && <button onClick={loadTestSession} title="Loads a completed session so you can preview the export" style={{background:"transparent",border:"1px solid #d97706",color:"#92400e",fontSize:10,fontWeight:600,padding:"2px 8px",borderRadius:4,cursor:"pointer",marginLeft:2}}>▶ Preview completed demo</button>}
-              {DEV && <div style={{position:"relative",display:"inline-block"}}>
-                <button onClick={()=>setShowSmokeMenu(s=>!s)} disabled={!!smoke} title="Auto-runs a full conversation against a simulated client persona to regression-test the flow" style={{background:"transparent",border:"1px solid #d97706",color:"#92400e",fontSize:10,fontWeight:600,padding:"2px 8px",borderRadius:4,cursor:smoke?"default":"pointer",marginLeft:2,opacity:smoke?0.5:1}}>Simulate conversation</button>
-                {showSmokeMenu && <div style={{position:"absolute",top:"115%",left:0,background:"white",border:"1px solid #e2e8f0",borderRadius:8,boxShadow:"0 8px 24px rgba(0,0,0,0.12)",zIndex:600,minWidth:190,overflow:"hidden"}}>
-                  {SMOKE_PERSONAS.map(p => <button key={p.key} onClick={()=>{setShowSmokeMenu(false);runSmokeTest(p.key);}} style={{display:"block",width:"100%",textAlign:"left",padding:"8px 12px",background:"transparent",border:"none",cursor:"pointer",fontSize:12,color:"#1e293b"}}>{p.emoji} {p.label}</button>)}
-                </div>}
-              </div>}
             </div>
             <div style={{fontSize:11,color:C.muted,marginTop:1}}>
               <>{L("hdrTagline",uiLang)}</>
@@ -2562,7 +2947,7 @@ input,textarea,select,button{font-family:inherit}
               </div>
             </div>
             <div style={{width:"100%",maxWidth:480,margin:"0 auto 22px",textAlign:uiLang==="Arabic"?"right":"left",animation:"slideUpFade .5s ease-out both",animationDelay:"270ms"}}>
-              {[[L("step1Title",uiLang),L("step1Desc",uiLang)],
+              {[[L("step1Title",uiLang),draftOk?L("step1Desc",uiLang):L("step1DescNoSave",uiLang)],
                 [L("step2Title",uiLang),L("step2Desc",uiLang)],
                 [L("step3Title",uiLang),L("step3Desc",uiLang)]].map(([t,d],i) => (
                 <div key={i} style={{display:"flex",gap:12,padding:"8px 0",borderBottom:i<2?`1px solid ${C.border}`:"none"}}>
@@ -2580,25 +2965,25 @@ input,textarea,select,button{font-family:inherit}
         {!started && saved && (
           <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",minHeight:380,textAlign:"center"}}>
             <LumenMark size={64}/>
-            <h1 style={{margin:"20px 0 8px",color:C.text,fontSize:22,fontWeight:700}}>Welcome back!</h1>
-            <p style={{color:C.muted,fontSize:14,margin:"0 0 8px"}}>You have an onboarding session in progress.</p>
+            <h1 style={{margin:"20px 0 8px",color:C.text,fontSize:22,fontWeight:700}}>{L("welcomeBackTitle",uiLang)}</h1>
+            <p style={{color:C.muted,fontSize:14,margin:"0 0 8px"}}>{L("welcomeBackDesc",uiLang)}</p>
             {/* Hide a meaningless "0% complete" — a saved-but-barely-started draft
                 shouldn't greet the client with a zero. */}
-            <p style={{color:P,fontSize:13,fontWeight:600,margin:"0 0 24px"}}>{(saved?.progress?.percent||0) > 0 ? `${saved.progress.percent}% complete` : "Your answers are saved on this device"}</p>
+            <p style={{color:P,fontSize:13,fontWeight:600,margin:"0 0 24px"}}>{(saved?.progress?.percent||0) > 0 ? L("savedPercent",uiLang,{pct:saved.progress.percent}) : L("savedOnDevice",uiLang)}</p>
             {!confirmFresh ? (
               <div style={{display:"flex",gap:12}}>
-                <button onClick={resumeConvo} style={{background:P,color:"white",border:"none",borderRadius:10,padding:"13px 28px",cursor:"pointer",fontWeight:600}}>Resume session</button>
-                <button onClick={()=>setConfirmFresh(true)} style={{background:"transparent",border:`1px solid ${C.border}`,color:C.muted,borderRadius:10,padding:"13px 28px",cursor:"pointer"}}>Start over</button>
+                <button onClick={resumeConvo} style={{background:P,color:"white",border:"none",borderRadius:10,padding:"13px 28px",cursor:"pointer",fontWeight:600}}>{L("resumeBtn",uiLang)}</button>
+                <button onClick={()=>setConfirmFresh(true)} style={{background:"transparent",border:`1px solid ${C.border}`,color:C.muted,borderRadius:10,padding:"13px 28px",cursor:"pointer"}}>{L("startOverBtn",uiLang)}</button>
               </div>
             ) : (
               /* Two-step confirm: one stray tap next to Resume must not silently erase
                  a draft that can be most of a finished onboarding — that would break
                  the "pick up where you left off" promise the welcome screen makes. */
               <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:12}}>
-                <p style={{color:"#92400e",fontSize:13,margin:0,maxWidth:340,lineHeight:1.5}}>Starting over permanently erases your saved answers. This can't be undone.</p>
+                <p style={{color:"#92400e",fontSize:13,margin:0,maxWidth:340,lineHeight:1.5}}>{L("eraseWarn",uiLang)}</p>
                 <div style={{display:"flex",gap:12}}>
-                  <button onClick={()=>setConfirmFresh(false)} style={{background:P,color:"white",border:"none",borderRadius:10,padding:"13px 28px",cursor:"pointer",fontWeight:600}}>Keep my progress</button>
-                  <button onClick={()=>{setConfirmFresh(false);const keep=sidRef.current;lsClearDraft(seedId);resetSession();sidRef.current=keep;}} style={{background:"transparent",border:"1px solid #fca5a5",color:"#dc2626",borderRadius:10,padding:"13px 28px",cursor:"pointer",fontWeight:600}}>Erase and start over</button>
+                  <button onClick={()=>setConfirmFresh(false)} style={{background:P,color:"white",border:"none",borderRadius:10,padding:"13px 28px",cursor:"pointer",fontWeight:600}}>{L("keepBtn",uiLang)}</button>
+                  <button onClick={()=>{setConfirmFresh(false);const keep=sidRef.current;lsClearDraft(seedId);resetSession();sidRef.current=keep;}} style={{background:"transparent",border:"1px solid #fca5a5",color:"#dc2626",borderRadius:10,padding:"13px 28px",cursor:"pointer",fontWeight:600}}>{L("eraseBtn",uiLang)}</button>
                 </div>
               </div>
             )}
@@ -2611,8 +2996,8 @@ input,textarea,select,button{font-family:inherit}
         </div>}
 
         {messages.slice(vStart).map((m,ri) => {
-          const i = vStart+ri, canRW = m.role==="assistant"&&i>0;
-          const canEdit = m.role==="user"&&!m.isWidget&&!m.isAttachment&&!loading&&!smoke;
+          const i = vStart+ri;
+          const canEdit = m.role==="user"&&!m.isWidget&&!m.isAttachment&&!loading;
           if (m.role==="divider") return <div key={i} style={{display:"flex",alignItems:"center",gap:10,margin:"6px 0 22px"}} role="separator" aria-label={`${m.label}${m.sub?`, ${m.sub}`:""}`}>
             <div style={{flex:1,height:1,background:C.border}}/>
             <div style={{fontSize:11,fontWeight:600,color:C.muted,whiteSpace:"nowrap"}}>✓ {m.label}{m.sub?<span style={{fontWeight:400}}> · {m.sub}</span>:null}</div>
@@ -2628,8 +3013,7 @@ input,textarea,select,button{font-family:inherit}
                     : <MsgText text={m.content}/>}
                 </div>
                 <div style={{display:"flex",gap:8,alignItems:"center",justifyContent:m.role==="user"?"flex-end":"flex-start",marginTop:4}}>
-                  {DEV && canRW && <button onClick={()=>setRewind(i)} title="Deletes all messages after this point" style={{background:"transparent",border:"none",color:"#94a3b8",cursor:"pointer",fontSize:11,padding:"2px 6px",borderRadius:4,opacity:0.5}}>↺ Rewind to here</button>}
-                  {canEdit && <button onClick={()=>{setInput(`Correction, earlier I said "${m.content}". What I actually meant: `);setTimeout(()=>taRef.current?.focus(),50);}} title="Send a correction without deleting any messages" style={{background:"transparent",border:"none",color:"#64748b",cursor:"pointer",fontSize:11,padding:"2px 6px",borderRadius:4,opacity:0.85}}>✎ Edit</button>}
+                  {canEdit && <button onClick={()=>{setInput(L("editPrefill",uiLang,{quote:m.content}));setTimeout(()=>taRef.current?.focus(),50);}} title={L("editTitle",uiLang)} style={{background:"transparent",border:"none",color:"#64748b",cursor:"pointer",fontSize:11,padding:"2px 6px",borderRadius:4,opacity:0.85}}>✎ {L("editLabel",uiLang)}</button>}
                   {m.timestamp && <div style={{fontSize:10,color:C.muted,opacity:0.85}}>{m.timestamp}</div>}
                 </div>
               </div>}
@@ -2639,14 +3023,14 @@ input,textarea,select,button{font-family:inherit}
                 if (chosen) return <div style={{fontSize:11,color:C.muted,marginTop:6,fontStyle:"italic"}}>{L("youChose",uiLang)} <strong style={{color:C.text}}>{chosen}</strong></div>;
                 return null;
               })()}
-              {m.role==="assistant" && m.widgets?.map(w => <div key={w} style={{background:C.card,border:`1px solid ${C.border}`,borderLeft:`3px solid ${A}`,borderRadius:12,padding:"12px 14px",marginTop:8,boxShadow:"0 2px 10px rgba(1,43,58,0.08)"}}>
+              {m.role==="assistant" && m.widgets?.map((w,wi) => <div key={w} ref={i===messages.length-1&&wi===0?lastWidgetRef:null} role="group" aria-label={L("focusWidgetGroup",uiLang)} tabIndex={-1} style={{background:C.card,border:`1px solid ${C.border}`,borderLeft:`3px solid ${A}`,borderRadius:12,padding:"12px 14px",marginTop:8,boxShadow:"0 2px 10px rgba(1,43,58,0.08)",outline:"none"}}>
                 {renderWidget(w,i,w==="TOPICS"?m.topicSuggestions:null)}
               </div>)}
             </div>
           </div>;
         })}
 
-        {showQR && !loading && <div style={{display:"flex",flexWrap:"wrap",gap:8,marginTop:-8,marginBottom:18,marginInlineStart:38,marginInlineEnd:0}}>
+        {showQR && !loading && <div ref={qrRef} role="group" aria-label={L("focusRepliesGroup",uiLang)} tabIndex={-1} style={{display:"flex",flexWrap:"wrap",gap:8,marginTop:-8,marginBottom:18,marginInlineStart:38,marginInlineEnd:0,outline:"none"}}>
           {last.quickReplies.map((qr,idx) => <button key={idx} onClick={()=>sendMsg(qr,qr)} style={{background:"transparent",border:`1px solid ${LINK}`,color:LINK,borderRadius:16,padding:"6px 14px",fontSize:13,cursor:"pointer",fontWeight:600}}>{qr}</button>)}
         </div>}
         {loading && <div role="status" aria-live="polite" aria-label={L("thinking",uiLang)} style={{display:"flex",justifyContent:"flex-start",marginBottom:18,animation:"slideUpFade 0.3s ease-out forwards"}}>
@@ -2699,7 +3083,7 @@ input,textarea,select,button{font-family:inherit}
             </button>
           </div>
           {attachNote && <div style={{fontSize:11,color:"#92400e",background:"#fffbeb",border:"1px solid #fde68a",borderRadius:8,padding:"6px 10px",marginTop:6}}>{attachNote}</div>}
-          {!mob && input.trim() && <div style={{fontSize:11,color:C.muted,marginTop:6,opacity:0.75,textAlign:uiLang==="Arabic"?"left":"right"}}>↵ to send · Shift+↵ for a new line</div>}
+          {!mob && input.trim() && <div style={{fontSize:11,color:C.muted,marginTop:6,opacity:0.75,textAlign:uiLang==="Arabic"?"left":"right"}}>{L("sendHint",uiLang)}</div>}
           {/* The safety net for a stuck client (or a model that never reaches 100%)
               must be findable: a real secondary button with a tap-sized target, not
               11px faint underlined micro-text — the least visible thing on screen at
