@@ -354,16 +354,32 @@
 
   function renderKpis(sessions) {
     var box = $("kpis");
-    // KPIs describe real onboarding sessions; "Link sent" pseudo-rows (links
-    // generated but never opened) carry no timing/cost, so they must not count
-    // as a session or drag the completion rate. They still show in the table.
-    sessions = sessions.filter(function (s) { return !s._linkSent; });
-    var total = sessions.length;
-    var completed = sessions.filter(function (s) { return s.status === "completed"; });
-    var compN = completed.length;
-    var rate = total ? Math.round(compN / total * 100) : 0;
-    // Median + time-saved are over completed briefs that have a known duration,
+    var fs = FILTER.status;
+    // "Link sent" pseudo-rows (links generated but never opened) carry no
+    // timing/cost, so they never feed the completion rate or the time/spend
+    // cards. They ARE counted when you filter to the "Link sent" status.
+    var real = sessions.filter(function (s) { return !s._linkSent; });
+    // Total: real sessions in the default view; the rows actually shown when a
+    // specific status is filtered (so a "Link sent" filter counts those).
+    var total = (fs === "all") ? real.length : sessions.length;
+
+    // Second card follows the active status filter. Otherwise it always said
+    // "completed" and read "0 (0%) completed" whenever you filtered to another
+    // status. "All statuses" keeps the completion-rate headline.
+    var card2v, card2l;
+    if (fs === "all") {
+      var compN = real.filter(function (s) { return s.status === "completed"; }).length;
+      var rate = real.length ? Math.round(compN / real.length * 100) : 0;
+      card2v = compN + (real.length ? " (" + rate + "%)" : "");
+      card2l = "completed";
+    } else {
+      card2v = String(sessions.filter(function (s) { return displayStatus(s) === fs; }).length);
+      card2l = ((STATUS_META[fs] || {}).l || fs).toLowerCase();
+    }
+
+    // Median + time-saved + spend are over completed sessions with known timing,
     // so records with no timing neither move the median nor inflate the saving.
+    var completed = real.filter(function (s) { return s.status === "completed"; });
     var durs = completed.map(function (s) { return s.durationMs; }).filter(function (n) { return n != null; });
     var medMs = median(durs);
     var medMin = medMs != null ? Math.round(medMs / 60000) : null;
@@ -373,7 +389,7 @@
     var perBrief = (totalCost != null && costs.length) ? totalCost / costs.length : null;
     var kpis = [
       [String(total), total === 1 ? "session" : "sessions"],
-      [compN + (total ? " (" + rate + "%)" : ""), "completed"],
+      [card2v, card2l],
       [medMin != null ? medMin + " min" : "—", "median time, start to submit"],
       [savedH != null ? savedH.toFixed(1) + " h" : "—", "est. time saved (vs 90 min manual)"],
       [fmtCost(totalCost), "est. AI spend" + (perBrief != null ? " · " + fmtCost(perBrief) + "/brief" : "")],
