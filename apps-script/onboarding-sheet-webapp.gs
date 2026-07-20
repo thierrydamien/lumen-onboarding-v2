@@ -332,28 +332,66 @@ function writeCell_(sh, row, col1, value) {
   }
 }
 function writeRows_(sh, header, items, toRow) {
-  // Some tabs give each item a multi-row MERGED slot, so writing to consecutive
-  // rows would stomp inside slot 1 and lose every item after the first. Step by
-  // each slot's height (detected from vertical merges across the mapped columns)
-  // and write to its anchor row. Flat templates behave as one row per item.
-  let row = header.row + 2; // 1-based row just below the header
-  let wrote = 0, cellFails = 0;
-  for (let i = 0; i < items.length; i++) {
-    let anchor = row, slotH = 1;
-    for (const f in header.cols) {
-      try {
-        const m = sh.getRange(row, header.cols[f] + 1).getMergedRanges();
-        if (m && m.length) { anchor = Math.min(anchor, m[0].getRow()); slotH = Math.max(slotH, m[0].getNumRows()); }
-      } catch (e) { /* no merge info for this cell */ }
+  if (!items.length) return;
+  // BATCHED write. Per-cell setValue + a per-cell merge probe means one backend
+  // round-trip PER CELL, which on a full brief is slow enough to push the run past
+  // the timeout. Instead: probe merges ONCE, clear validation on the block ONCE
+  // (so "reject input" dropdowns can't block the write), then read-modify-write the
+  // whole block in a SINGLE setValues. Falls back to resilient per-cell only if the
+  // batch is rejected. Flat templates (no merges) behave as one row per item, so
+  // the previously-working path is unchanged.
+  const cols = [];
+  for (const f in header.cols) cols.push(header.cols[f]);
+  const minCol = Math.min.apply(null, cols), maxCol = Math.max.apply(null, cols);
+  const width = maxCol - minCol + 1;
+  const firstDataRow = header.row + 2; // 1-based row just below the header
+
+  // Some tabs give each item a multi-row MERGED slot; writing to consecutive rows
+  // would stomp inside slot 1. Detect slots from one merge probe over the region.
+  let merges = [];
+  try { merges = sh.getRange(firstDataRow, minCol + 1, items.length * 6 + 6, width).getMergedRanges() || []; } catch (e) {}
+  function slotAt(r) {
+    let anchor = r, bottom = r;
+    for (let k = 0; k < merges.length; k++) {
+      const top = merges[k].getRow(), bot = top + merges[k].getNumRows() - 1;
+      if (r >= top && r <= bot) { if (top < anchor) anchor = top; if (bot > bottom) bottom = bot; }
     }
-    const rowVals = toRow(items[i]);
-    for (const field in header.cols) {
-      if (!writeCell_(sh, anchor, header.cols[field] + 1, rowVals[field])) cellFails++;
-    }
-    wrote++;
-    row = anchor + slotH; // advance past the (possibly merged) slot
+    return { anchor: anchor, next: bottom + 1 };
   }
-  console.log("writeRows_ '" + sh.getName() + "': wrote " + wrote + "/" + items.length + " item(s), " + cellFails + " cell(s) skipped");
+  const anchors = [];
+  let row = firstDataRow, maxRow = firstDataRow;
+  for (let i = 0; i < items.length; i++) {
+    const s = slotAt(row);
+    anchors.push(s.anchor);
+    if (s.anchor > maxRow) maxRow = s.anchor;
+    row = s.next;
+  }
+  const region = sh.getRange(firstDataRow, minCol + 1, maxRow - firstDataRow + 1, width);
+  try { region.clearDataValidations(); } catch (e) {}
+  let grid = null;
+  try { grid = region.getValues(); } catch (e) { grid = null; }
+  if (grid) {
+    for (let i = 0; i < items.length; i++) {
+      const rv = toRow(items[i]);
+      const gi = anchors[i] - firstDataRow;
+      if (gi < 0 || gi >= grid.length) continue;
+      for (const field in header.cols) {
+        const v = rv[field];
+        if (v != null && v !== "") grid[gi][header.cols[field] - minCol] = cellSafe_(v);
+      }
+    }
+    try {
+      region.setValues(grid);
+      console.log("writeRows_ '" + sh.getName() + "': wrote " + items.length + " item(s) (batched)");
+      return;
+    } catch (e) { console.log("writeRows_ '" + sh.getName() + "' batch rejected, per-cell fallback: " + e); }
+  }
+  let fails = 0;
+  for (let i = 0; i < items.length; i++) {
+    const rv = toRow(items[i]);
+    for (const field in header.cols) if (!writeCell_(sh, anchors[i], header.cols[field] + 1, rv[field])) fails++;
+  }
+  console.log("writeRows_ '" + sh.getName() + "': wrote " + items.length + " item(s) per-cell, " + fails + " cell(s) skipped");
 }
 
 function fillUsers_(ss, users) {
