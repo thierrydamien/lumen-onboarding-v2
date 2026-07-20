@@ -94,6 +94,12 @@ function doPost(e) {
 
       const url = copy.getUrl();
 
+      // Push the Sheet link to the dashboard's session store now (best-effort), so
+      // the "Open Sheet" link appears even when the client aborted before receiving
+      // the URL (a long/heavy session can outlast the client's 30s wait; this script
+      // still finishes). Authenticated server-side with the shared secret.
+      safe_(function () { updateSessionSheetUrl_(body.sessionId, url); }, "session writeback");
+
       // Share the Sheet with the client AND send our own branded confirmation
       // email (thanks + link + next steps), localised to their onboarding
       // language. shareWithClient_ suppresses Google's generic "shared a document"
@@ -213,10 +219,35 @@ function sendClientEmail_(email, firstName, url, lang) {
   MailApp.sendEmail({ to: email, subject: t.subject, htmlBody: html, body: plain, name: "Lumen Onboarding" });
 }
 
+// Push the Sheet URL back to the Netlify session store so the dashboard shows the
+// "Open Sheet" link even when the client timed out before receiving it. The client
+// normally saves the URL, but a long/heavy session can outlast its 30s wait while
+// this script keeps running to completion. Authenticated with the same SHARED_SECRET
+// the chat proxy uses; the endpoint only accepts a sheetUrl update to an existing
+// record. Best-effort: any failure is logged and ignored (the client path still
+// works when it doesn't time out). The session endpoint origin is derived from the
+// DASHBOARD_URL Script Property.
+function updateSessionSheetUrl_(sessionId, url) {
+  if (!sessionId || !url) return;
+  const props = PropertiesService.getScriptProperties();
+  const secret = props.getProperty("SHARED_SECRET");
+  const dash = props.getProperty("DASHBOARD_URL") || "";
+  const origin = (dash.match(/^https?:\/\/[^\/]+/) || [])[0];
+  if (!secret || !origin) return;
+  const res = UrlFetchApp.fetch(origin + "/.netlify/functions/session", {
+    method: "post",
+    contentType: "application/json",
+    payload: JSON.stringify({ secret: secret, id: sessionId, sheetUrl: url }),
+    muteHttpExceptions: true,
+  });
+  const code = res.getResponseCode();
+  if (code < 200 || code >= 300) console.log("session sheetUrl writeback HTTP " + code + ": " + res.getContentText());
+}
+
 // ---- populate helpers -------------------------------------------------------
 
 function norm_(v) { return String(v == null ? "" : v).toLowerCase().replace(/\s+/g, " ").trim(); }
-function safe_(fn) { try { fn(); } catch (e) { /* per-tab best-effort */ } }
+function safe_(fn, label) { try { fn(); } catch (e) { console.log("safe_ swallowed" + (label ? " [" + label + "]" : "") + ": " + e); } }
 
 function sheetLike_(ss, re) {
   const sheets = ss.getSheets();
@@ -284,15 +315,45 @@ function cellSafe_(v) {
   if (typeof v !== "string") return v;
   return /^[=+\-@\t\r]/.test(v) ? "'" + v : v;
 }
+// Write one cell resiliently. The template's list tabs use "reject input" data
+// validation (dropdowns for channel type, access rights, owned/public, etc.) and
+// a value the dropdown doesn't allow makes setValue THROW. A merged non-anchor
+// cell throws too. The old code let the first such throw abort the whole tab (via
+// safe_), so only one partial row ever filled. Here each cell is independent: try
+// to write; on failure clear that cell's validation and retry; still failing, log
+// and skip — so every writable cell lands regardless of the others.
+function writeCell_(sh, row, col1, value) {
+  if (value == null || value === "") return true;
+  const rng = sh.getRange(row, col1);
+  try { rng.setValue(cellSafe_(value)); return true; }
+  catch (e1) {
+    try { rng.setDataValidation(null); rng.setValue(cellSafe_(value)); return true; }
+    catch (e2) { console.log("writeCell_ skip r" + row + " c" + col1 + " on '" + sh.getName() + "': " + e2); return false; }
+  }
+}
 function writeRows_(sh, header, items, toRow) {
-  const firstDataRow = header.row + 2; // 1-based row just below the header
+  // Some tabs give each item a multi-row MERGED slot, so writing to consecutive
+  // rows would stomp inside slot 1 and lose every item after the first. Step by
+  // each slot's height (detected from vertical merges across the mapped columns)
+  // and write to its anchor row. Flat templates behave as one row per item.
+  let row = header.row + 2; // 1-based row just below the header
+  let wrote = 0, cellFails = 0;
   for (let i = 0; i < items.length; i++) {
+    let anchor = row, slotH = 1;
+    for (const f in header.cols) {
+      try {
+        const m = sh.getRange(row, header.cols[f] + 1).getMergedRanges();
+        if (m && m.length) { anchor = Math.min(anchor, m[0].getRow()); slotH = Math.max(slotH, m[0].getNumRows()); }
+      } catch (e) { /* no merge info for this cell */ }
+    }
     const rowVals = toRow(items[i]);
     for (const field in header.cols) {
-      const v = rowVals[field];
-      if (v != null && v !== "") sh.getRange(firstDataRow + i, header.cols[field] + 1).setValue(cellSafe_(v));
+      if (!writeCell_(sh, anchor, header.cols[field] + 1, rowVals[field])) cellFails++;
     }
+    wrote++;
+    row = anchor + slotH; // advance past the (possibly merged) slot
   }
+  console.log("writeRows_ '" + sh.getName() + "': wrote " + wrote + "/" + items.length + " item(s), " + cellFails + " cell(s) skipped");
 }
 
 function fillUsers_(ss, users) {

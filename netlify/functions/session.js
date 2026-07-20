@@ -21,14 +21,40 @@ export default async (req) => {
   const url = new URL(req.url);
 
   if (req.method === "POST") {
-    // Origin check. Writes come from the public chat page (same origin). Browsers
-    // send an Origin header on POST even same-origin, so we require it to be
-    // PRESENT and same-origin — this rejects naive scripted writes that omit or
-    // mismatch it (previously a missing Origin passed). It is NOT a strong control
-    // (Origin is spoofable outside a browser), so it layers with the payload
-    // validation, size caps and status lock below. This endpoint is inherently
-    // public: the chat page has no login, so it cannot carry a server secret —
-    // see README (write-endpoint exposure) for why there's no token gate here.
+    const rawBody = await req.text();
+    if (rawBody.length > MAX_BODY_BYTES) return json(413, { error: "payload_too_large" });
+
+    let body;
+    try { body = JSON.parse(rawBody); }
+    catch { return json(400, { error: "bad_json" }); }
+
+    // Server-to-server sheetUrl writeback from the Apps Script (authenticated by the
+    // shared APPS_SCRIPT_SECRET). Lets the dashboard show the "Open Sheet" link even
+    // when the client timed out before receiving the URL — a long/heavy session can
+    // outlast the client's wait while the Apps Script still finishes and calls this.
+    // Bypasses the Origin check (the Apps Script is cross-origin); it ONLY updates
+    // the sheetUrl on an EXISTING record and cannot create or otherwise mutate a
+    // session, so the secret is the sole authority for this narrow write.
+    if (body && typeof body.secret === "string" && body.id && typeof body.sheetUrl === "string") {
+      const wbSecret = process.env.APPS_SCRIPT_SECRET;
+      if (!wbSecret || body.secret !== wbSecret) return json(401, { error: "unauthorized" });
+      try {
+        const prev = await store.get(body.id, { type: "json" }).catch(() => null);
+        if (!prev) return json(404, { error: "not_found" });
+        prev.sheetUrl = String(body.sheetUrl).slice(0, 2000);
+        prev.notifyFallback = false; // the Sheet exists now, so the fallback alert is moot
+        await store.setJSON(body.id, prev);
+        return json(200, { id: body.id, updated: true });
+      } catch (err) { console.error("sheetUrl writeback failed", err); return json(502, { error: "writeback_failed" }); }
+    }
+
+    // Origin check for normal client writes. Browsers send an Origin header on POST
+    // even same-origin, so we require it PRESENT and same-origin — this rejects naive
+    // scripted writes that omit or mismatch it. It is NOT a strong control (Origin is
+    // spoofable outside a browser), so it layers with the payload validation, size
+    // caps and status lock below. The chat page has no login, so it cannot carry a
+    // server secret — see README (write-endpoint exposure) for why there's no token
+    // gate on the normal path.
     const origin = req.headers.get("origin");
     const siteURL = process.env.URL;
     if (siteURL) {
@@ -38,13 +64,6 @@ export default async (req) => {
     } else {
       console.warn("URL env not set — cannot validate Origin on session write");
     }
-
-    const rawBody = await req.text();
-    if (rawBody.length > MAX_BODY_BYTES) return json(413, { error: "payload_too_large" });
-
-    let body;
-    try { body = JSON.parse(rawBody); }
-    catch { return json(400, { error: "bad_json" }); }
 
     const session = body && body.session;
     if (!session || typeof session !== "object" || Array.isArray(session)) return json(400, { error: "missing_session" });
@@ -74,20 +93,27 @@ export default async (req) => {
       if (record.status !== "completed") {
         const prev = await store.get(id, { type: "json" }).catch(() => null);
         if (prev && prev.status === "completed") return json(200, { id, skipped: "completed_locked" });
-      } else if (record.notifyFallback && !record.sheetUrl) {
-        // Fallback completion alert. The brief's Slack notification is normally
-        // fired by the Apps Script when it creates the Google Sheet; if that step
-        // failed (or Sheets isn't configured) no alert goes out and a completed
-        // brief reaches Proserv silently. The client flags that case with
-        // notifyFallback, and we post a concise alert here instead — exactly once,
-        // stamped alertedAt so a re-POST can't double-fire. No-op if SLACK_BOT_TOKEN
-        // is unset (same posture as stalled-check.js).
+      } else {
+        // Completed record. Reconcile with the Apps Script's server-side sheetUrl
+        // writeback, which can land BEFORE this POST: a client that timed out sends
+        // a completed record with no sheetUrl and notifyFallback set, but the Sheet
+        // may already exist and its link already be stored. Never null out a known
+        // Sheet link, and don't fire the fallback when a Sheet is on record.
         const prev = await store.get(id, { type: "json" }).catch(() => null);
-        if (prev && prev.alertedAt) {
-          record.alertedAt = prev.alertedAt; // already alerted — preserve, never re-fire
-        } else {
-          const ok = await postCompletionFallback(record);
-          if (ok) record.alertedAt = new Date().toISOString();
+        if (prev && prev.sheetUrl && !record.sheetUrl) record.sheetUrl = prev.sheetUrl;
+        if (record.sheetUrl) record.notifyFallback = false;
+        // Fallback completion alert: only when there is genuinely no Sheet, exactly
+        // once (stamped alertedAt so a re-POST can't double-fire). No-op if
+        // SLACK_BOT_TOKEN is unset (same posture as stalled-check.js).
+        if (record.notifyFallback && !record.sheetUrl) {
+          if (prev && prev.alertedAt) {
+            record.alertedAt = prev.alertedAt; // already alerted — preserve, never re-fire
+          } else {
+            const ok = await postCompletionFallback(record);
+            if (ok) record.alertedAt = new Date().toISOString();
+          }
+        } else if (prev && prev.alertedAt) {
+          record.alertedAt = prev.alertedAt; // keep any prior stamp
         }
       }
       await store.setJSON(id, record);
