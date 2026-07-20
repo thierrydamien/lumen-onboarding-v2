@@ -260,8 +260,9 @@ function sheetLike_(ss, re) {
 
 // Business Objectives: key/value layout. Match column A labels, write column B.
 function fillBusinessObjectives_(ss, c) {
-  const sh = sheetLike_(ss, /business objectives/);
-  if (!sh) return;
+  const sh = sheetLike_(ss, /business objectives|launch requirements/) ||
+    findTabByLabels_(ss, [/business objectives/, /preferred onboarding language/, /geographic markets/, /main point of contact/, /requirements completed by/]);
+  if (!sh) { console.log("fillBusinessObjectives_: no tab matched (name or labels) — see the tab list above"); return; }
   const vals = sh.getDataRange().getValues();
   const contact = [c.contact, c.email].filter(Boolean).join(" – ");
   const rules = [
@@ -310,6 +311,40 @@ function detectHeader_(sh, fieldMap, maxScan) {
   return bestScore >= 2 ? best : null;
 }
 
+// Fallback tab finder: when a tab's NAME doesn't match (the template can be renamed
+// — this is exactly why the Users tab wasn't filling), pick the tab whose CONTENT
+// best matches the given header fields. Callers try the name match first; this is
+// the safety net so a rename never silently drops a whole section.
+function findTabByHeader_(ss, fieldMap) {
+  const sheets = ss.getSheets();
+  let best = null, bestScore = 0;
+  for (let i = 0; i < sheets.length; i++) {
+    const h = detectHeader_(sheets[i], fieldMap);
+    const sc = h ? Object.keys(h.cols).length : 0;
+    if (sc > bestScore) { bestScore = sc; best = sheets[i]; }
+  }
+  return best;
+}
+
+// Content fallback for key/value tabs (Business Objectives) that have no header
+// row to detect. Picks the tab whose column A carries the most of the given label
+// patterns. Requires >= 3 so it can't latch onto an unrelated tab.
+function findTabByLabels_(ss, res) {
+  const sheets = ss.getSheets();
+  let best = null, bestScore = 0;
+  for (let i = 0; i < sheets.length; i++) {
+    const vals = sheets[i].getDataRange().getValues();
+    const seen = {}; let score = 0;
+    for (let r = 0; r < Math.min(vals.length, 40); r++) {
+      const a = norm_(vals[r][0]);
+      if (!a) continue;
+      for (let k = 0; k < res.length; k++) if (!seen[k] && res[k].test(a)) { seen[k] = true; score++; }
+    }
+    if (score > bestScore) { bestScore = score; best = sheets[i]; }
+  }
+  return bestScore >= 3 ? best : null;
+}
+
 // Neutralise spreadsheet formula injection: a client cell value starting with
 // = + - @ (or a leading control char) is coerced to text with a leading apostrophe,
 // so "=IMPORTDATA(...)" / "=HYPERLINK(...)" is stored literally and never executes
@@ -325,6 +360,13 @@ function cellSafe_(v) {
 // safe_), so only one partial row ever filled. Here each cell is independent: try
 // to write; on failure clear that cell's validation and retry; still failing, log
 // and skip — so every writable cell lands regardless of the others.
+// Grow the sheet so `lastRow` (1-based) is addressable. No-op when it already fits.
+function ensureRows_(sh, lastRow) {
+  try {
+    const mr = sh.getMaxRows();
+    if (lastRow > mr) sh.insertRowsAfter(mr, lastRow - mr);
+  } catch (e) { console.log("ensureRows_ (" + lastRow + ") on '" + sh.getName() + "': " + e); }
+}
 function writeCell_(sh, row, col1, value) {
   if (value == null || value === "") return true;
   const rng = sh.getRange(row, col1);
@@ -369,6 +411,11 @@ function writeRows_(sh, header, items, toRow) {
     if (s.anchor > maxRow) maxRow = s.anchor;
     row = s.next;
   }
+  // The template can end a section right at its header (e.g. the alert sub-header is
+  // the last row), and Sheets does NOT auto-grow on write. Make sure the grid has
+  // enough rows for everything we're about to write, or getValues/setValues throws
+  // and the whole section silently drops.
+  ensureRows_(sh, maxRow);
   const region = sh.getRange(firstDataRow, minCol + 1, maxRow - firstDataRow + 1, width);
   try { region.clearDataValidations(); } catch (e) {}
   let grid = null;
@@ -399,10 +446,13 @@ function writeRows_(sh, header, items, toRow) {
 
 function fillUsers_(ss, users) {
   if (!users.length) return;
-  // Broadened from /users/: the template tab may be "User list" (singular), "Team",
-  // etc. The other tabs don't contain these words, so this can't mis-match.
-  const sh = sheetLike_(ss, /user|team/);
-  if (!sh) { console.log("fillUsers_: no tab matched /user|team/ — see the tab list above"); return; }
+  // Find by tab name first, then fall back to CONTENT (in case the tab was renamed
+  // — a rename is exactly what silently dropped the Users section before). The
+  // content fields (e-mail + access + first/last name) don't occur together on any
+  // other tab, so the fallback can't mis-latch.
+  const sh = sheetLike_(ss, /user|team/) ||
+    findTabByHeader_(ss, { firstName: /first ?name/, lastName: /last ?name|surname/, email: /e-?mail/, access: /access|permission|licen/ });
+  if (!sh) { console.log("fillUsers_: no tab matched /user|team/ (and no content match) — see the tab list above"); return; }
   const header = detectHeader_(sh, { firstName: /first ?name|^name$/, lastName: /last ?name|surname/, role: /role|department|team/, email: /e-?mail/, access: /access|permission|licen/ });
   if (!header) { console.log("fillUsers_: header not detected on '" + sh.getName() + "'"); return; }
   writeRows_(sh, header, users, function (u) {
@@ -412,8 +462,9 @@ function fillUsers_(ss, users) {
 
 function fillTopics_(ss, topics) {
   if (!topics.length) return;
-  const sh = sheetLike_(ss, /topic/);
-  if (!sh) { console.log("fillTopics_: no tab matched /topic/ — see the tab list above"); return; }
+  const sh = sheetLike_(ss, /topic/) ||
+    findTabByHeader_(ss, { group: /group/, keywords: /keyword/, urls: /url/, hashtags: /hashtag/ });
+  if (!sh) { console.log("fillTopics_: no tab matched /topic/ (and no content match) — see the tab list above"); return; }
   const header = detectHeader_(sh, { group: /group/, name: /topic.*name|filter name/, keywords: /keyword/, urls: /url/, hashtags: /hashtag/, comments: /comment/ });
   if (!header) { console.log("fillTopics_: header not detected on '" + sh.getName() + "'"); return; }
   writeRows_(sh, header, topics, function (t) {
@@ -423,8 +474,9 @@ function fillTopics_(ss, topics) {
 
 function fillChannels_(ss, channels) {
   if (!channels.length) return;
-  const sh = sheetLike_(ss, /channel|social/);
-  if (!sh) { console.log("fillChannels_: no tab matched /channel|social/ — see the tab list above"); return; }
+  const sh = sheetLike_(ss, /channel|social/) ||
+    findTabByHeader_(ss, { author: /author/, type: /channel type/, url: /url/, owned: /owned|public/ });
+  if (!sh) { console.log("fillChannels_: no tab matched /channel|social/ (and no content match) — see the tab list above"); return; }
   const header = detectHeader_(sh, { author: /author/, type: /channel type|^type$/, url: /url/, owned: /owned|public/ });
   if (!header) { console.log("fillChannels_: header not detected on '" + sh.getName() + "'"); return; }
   writeRows_(sh, header, channels, function (ch) {
@@ -432,22 +484,55 @@ function fillChannels_(ss, channels) {
   });
 }
 
-// Best-effort: the Reports/Dashboards/Alerts layout could not be fully verified.
-// Reports detected by name/objective/details/comments; alerts by name/type/details.
+// Reports/Dashboards/Alerts: ONE tab with TWO stacked sections, each with its own
+// sub-header row (and a generic legend row just above the first one):
+//   "Dahboard / Report | Group Name | Name | Details (time frame, KPIs, etc.) | Comments"
+//   "Alert | Name | Type | Details (time frame, KPIs, etc.) | Comments"
+// Detect BOTH sub-headers. The template leaves only a couple of empty rows between
+// them, so when there are more reports than that gap we insert rows just above the
+// alert sub-header (shifting it, and its data area, down) rather than overwriting
+// it. Then each section fills under its own header.
 function fillReportsAlerts_(ss, reports, alerts) {
-  const sh = sheetLike_(ss, /report|dashboard|alert/);
-  if (!sh) { console.log("fillReportsAlerts_: no tab matched /report|dashboard|alert/ — see the tab list above"); return; }
-  if (reports.length) {
-    const rh = detectHeader_(sh, { name: /report|dashboard|^name|title/, objective: /objective/, details: /detail|kpi|time/, comments: /comment/ });
-    if (rh) writeRows_(sh, rh, reports, function (r) {
-      return { name: r.name || "", objective: r.objective || "", details: r.details || "", comments: r.comments || "" };
-    });
+  reports = reports || []; alerts = alerts || [];
+  if (!reports.length && !alerts.length) return;
+  const sh = sheetLike_(ss, /report|dashboard|alert/) ||
+    findTabByHeader_(ss, { name: /^name$/, type: /^type$/, details: /detail|time frame|kpi/, comments: /comment/ });
+  if (!sh) { console.log("fillReportsAlerts_: no tab matched (and no content match) — see the tab list above"); return; }
+
+  // Reports/dashboards sub-header: first col "Dahboard / Report" (template typo kept),
+  // plus a "Group Name" column that the alert/legend rows don't have.
+  const repH = detectHeader_(sh, { type: /dahboard|dashboard/, group: /group/, name: /^name$/, details: /detail|time frame|kpi/, comments: /comment/ });
+  // Alerts sub-header: first col is exactly "Alert", and it has a "Type" column.
+  const alH = detectHeader_(sh, { alert: /^alert$/, name: /^name$/, type: /^type$/, details: /detail|time frame|kpi/, comments: /comment/ });
+
+  // Protect the alert sub-header from report overflow.
+  if (reports.length && repH && alH && alH.row > repH.row) {
+    const reportFirstData = repH.row + 2;   // 1-based first writable report row
+    const alertHeaderRow = alH.row + 1;      // 1-based alert sub-header row
+    const capacity = alertHeaderRow - reportFirstData;
+    if (reports.length > capacity) {
+      const need = reports.length - capacity;
+      try { sh.insertRowsBefore(alertHeaderRow, need); alH.row += need; }
+      catch (e) { console.log("fillReportsAlerts_ insertRows failed: " + e); }
+    }
   }
-  if (alerts.length) {
-    const ah = detectHeader_(sh, { name: /alert|^name/, type: /type|trigger/, details: /detail|kpi|threshold|time/, comments: /comment/ });
-    if (ah) writeRows_(sh, ah, alerts, function (a) {
+
+  if (reports.length && repH) {
+    // objective -> "Group Name" (the sub-header renames the legend's "Main objective"
+    // column to Group Name). The "Dahboard / Report" type column is left for the team.
+    writeRows_(sh, repH, reports, function (r) {
+      return { group: r.objective || "", name: r.name || "", details: r.details || "", comments: r.comments || "" };
+    });
+  } else if (reports.length) {
+    console.log("fillReportsAlerts_: reports sub-header not detected on '" + sh.getName() + "'");
+  }
+
+  if (alerts.length && alH) {
+    writeRows_(sh, alH, alerts, function (a) {
       return { name: a.name || "", type: a.type || "", details: a.details || "", comments: a.comments || "" };
     });
+  } else if (alerts.length) {
+    console.log("fillReportsAlerts_: alert sub-header not detected on '" + sh.getName() + "'");
   }
 }
 
