@@ -1230,8 +1230,8 @@ function lsClearDraft(seedId) { try { localStorage.removeItem(lsKey(seedId)); } 
 // brand's Instagram/X/TikTok channels all keyed on author "Nike" — so it was
 // reverted. The rare partial re-emit is recoverable in the editable review modal.)
 function mergeCdata(base, pr) {
-  const { companyData,topicsData,channelsData,reportsData,alertsData,handoffData } = pr;
-  if (!(companyData||topicsData||channelsData||reportsData||alertsData||handoffData)) return base;
+  const { companyData,topicsData,channelsData,reportsData,alertsData,usersData,handoffData } = pr;
+  if (!(companyData||topicsData||channelsData||reportsData||alertsData||usersData||handoffData)) return base;
   // Wipe guards: a stray re-emit of an EMPTY array (model slip) must not erase
   // data already captured — arrays replace wholesale only when the new one has
   // items. Objects (company/handoff) merge field-by-field with blanks dropped,
@@ -1245,6 +1245,7 @@ function mergeCdata(base, pr) {
     channels: keepArr(channelsData, base.channels),
     reports: keepArr(reportsData, base.reports),
     alerts: keepArr(alertsData, base.alerts),
+    users: keepArr(usersData, base.users),
     handoff: mergeObj(handoffData, base.handoff)};
 }
 // Drop null/undefined/blank values so a marker re-emit with empty fields never
@@ -1254,7 +1255,19 @@ const pruneEmpty = o => {
   for (const k in o) { const v = o[k]; if (v != null && v !== "") r[k] = v; }
   return r;
 };
-const emptyCdata = () => ({company:{},topics:[],channels:[],reports:[],alerts:[]});
+const emptyCdata = () => ({company:{},topics:[],channels:[],reports:[],alerts:[],users:[]});
+// Union users captured two ways — the submitted [WIDGET:USERS] value and the
+// %%USERS%% marker (people named in conversation, e.g. report recipients) — so a
+// user recorded either way reaches the brief. Dedupe by email (else by name);
+// blank rows (no email or name) are dropped. Widget entries come first.
+const unionUsers = (a, b) => {
+  const out = [], seen = new Set();
+  const key = u => String((u && (u.email || ((u.firstName||"")+"|"+(u.lastName||"")))) || "").trim().toLowerCase().replace(/^\|$/, "");
+  for (const list of [Array.isArray(a)?a:[], Array.isArray(b)?b:[]]) {
+    for (const u of list) { const k = key(u); if (!k || seen.has(k)) continue; seen.add(k); out.push(u); }
+  }
+  return out;
+};
 function pProg(t) { const m = t.match(/%%PROGRESS%%([\s\S]*?)%%END%%/); try { return m ? JSON.parse(m[1]) : null; } catch { return null; } }
 function pMark(t, k) { const m = t.match(new RegExp("%%"+k+"%%(\\[?[\\s\\S]*?\\]?)%%END%%")); try { return m ? JSON.parse(m[1]) : null; } catch { return null; } }
 // Neutralize marker delimiters in CLIENT-authored text before it reaches the
@@ -1396,7 +1409,7 @@ function parseReply(r) {
   if (topicSuggestions.length > 0 && !widgets.includes("TOPICS")) widgets.push("TOPICS");
   return { clean, widgets, topicSuggestions, quickReplies, progress,
     companyData:pMark(r,"COMPANY"), topicsData:pMark(r,"TOPICS"),
-    channelsData:pMark(r,"CHANNELS"), reportsData:pMark(r,"REPORTS"), alertsData:pMark(r,"ALERTS"), handoffData:pMark(r,"HANDOFF"), raw:r };
+    channelsData:pMark(r,"CHANNELS"), reportsData:pMark(r,"REPORTS"), alertsData:pMark(r,"ALERTS"), usersData:pMark(r,"USERS"), handoffData:pMark(r,"HANDOFF"), raw:r };
 }
 function renderText(text) {
   const parts = [], rx = /(\*\*(.+?)\*\*|\[([^\]]+)\]\((https?:\/\/[^\)]+)\))/g;
@@ -1919,7 +1932,7 @@ function ExportModal({ cdata, wState, messages, onClose, onExport, onSend, sendi
   const [objDetails,setObjDetails] = useState(objW.details||"");
   const [teams,setTeams]= useState((gw("TEAMS")||[]).join(", ")||cdata.company?.teams||"");
   const [tz,setTz]     = useState(Array.isArray(gw("TIMEZONE"))?gw("TIMEZONE")[0]:(gw("TIMEZONE")||cdata.company?.timezone||""));
-  const [users,setUsers]= useState(gw("USERS")||[]);
+  const [users,setUsers]= useState(unionUsers(gw("USERS"), cdata.users));
   // Topics can arrive two ways: the confirmed topic cards (name/keywords/rationale
   // only) and the %%TOPICS%% marker (also urls/hashtags/comments). Merge by name so
   // the marker's urls/hashtags survive into the brief instead of being dropped when
@@ -2317,7 +2330,7 @@ function OnboardingApp({ seed, seedId, seedError, onBriefSent, onSeeProserv }) {
       const pct = (progress && progress.percent) || 0;
       const hasRealAnswer = !!(cdata.company && cdata.company.name) || pct > 0;
       if (hasRealAnswer && !sendingRef.current) {
-        const usersW = gwp("USERS");
+        const usersW = unionUsers(gwp("USERS"), cdata.users);
         // The %%COMPANY%% marker carries only name/email/industry/useCase/contact;
         // markets/languages/objectives/teams/timezone are captured via widgets and
         // live in wState. Merge them into the in-progress record's company (the
@@ -2801,7 +2814,7 @@ function OnboardingApp({ seed, seedId, seedError, onBriefSent, onSeeProserv }) {
   const gwp = type => { const es=Object.entries(wState).filter(([k,v])=>k.endsWith(`-${type}`)&&(v===true||v?.submitted)).sort((a,b)=>(parseInt(a[0])||0)-(parseInt(b[0])||0)); return es.length?es[es.length-1][1].data:null; };
   const fmtV = v => { if (v==null||v===""||(Array.isArray(v)&&!v.length)) return null; if (v==="__skip__") return "Skipped"; return Array.isArray(v)?v.join(", "):String(v); };
   const topicsList = (cdata.topics?.length?cdata.topics:Array.isArray(gwp("TOPICS"))?gwp("TOPICS"):[]);
-  const usersList  = Array.isArray(gwp("USERS"))?gwp("USERS"):[];
+  const usersList  = unionUsers(gwp("USERS"), cdata.users);
   const sideCol = ww >= 1280;
   const panelRows = [
     [L("pnlCompany",uiLang), fmtV(cdata.company?.name)],
