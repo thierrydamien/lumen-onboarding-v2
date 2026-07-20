@@ -82,6 +82,11 @@ function doPost(e) {
       // Copy the master template into the destination folder (never touch the master).
       const copy = DriveApp.getFileById(TEMPLATE_ID).makeCopy(title, DriveApp.getFolderById(DEST_FOLDER_ID));
       const ss = SpreadsheetApp.openById(copy.getId());
+      // Resolve the URL up front, right after the copy exists. Everything the client
+      // ultimately needs — the dashboard writeback and the confirmation email — uses
+      // it, so computing it here (before the fills / flush) means a hiccup in a later
+      // step can never leave us without the link to hand back.
+      const url = copy.getUrl();
       // Log the actual tab names so a fill that can't find its tab is diagnosable
       // from the execution log (the fill matches tabs by name at runtime).
       console.log("Requirements Sheet tabs: " + ss.getSheets().map(function (s) { return s.getName(); }).join(" | "));
@@ -93,9 +98,9 @@ function doPost(e) {
       safe_(function () { fillChannels_(ss, brief.channels || []); });
       safe_(function () { fillReportsAlerts_(ss, brief.reports || [], brief.alerts || []); });
       safe_(function () { fillQueries_(ss, brief.queries || ""); });
-      SpreadsheetApp.flush();
-
-      const url = copy.getUrl();
+      // flush() forces pending writes; the setValues above have already applied, so a
+      // rare flush error must not abort the run before the writeback + email.
+      safe_(function () { SpreadsheetApp.flush(); }, "flush");
 
       // Push the Sheet link to the dashboard's session store now (best-effort), so
       // the "Open Sheet" link appears even when the client aborted before receiving

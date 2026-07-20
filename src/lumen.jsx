@@ -2560,7 +2560,7 @@ function OnboardingApp({ seed, seedId, seedError, onBriefSent, onSeeProserv }) {
       // the client just doesn't get a Sheet link. Never blocks the confirmation.
       // The Apps Script is idempotent on sessionId, so a retry returns the same
       // Sheet instead of creating a duplicate / re-firing Slack.
-      let sheetUrl = null;
+      let sheetUrl = null, sheetPending = false;
       try {
         const xlsxBase64 = XLSX.write(wb, { type: "base64", bookType: "xlsx" });
         const sres = await fetchWithTimeout(SHEET_ENDPOINT, {
@@ -2568,7 +2568,11 @@ function OnboardingApp({ seed, seedId, seedError, onBriefSent, onSeeProserv }) {
           body: JSON.stringify({ sessionId: saveOk ? sidRef.current : undefined, xlsxBase64, brief: { ...merged, company: { ...merged.company, onboardingLanguage: uiLang }, users: users || [] }, filename, clientEmail: merged.company?.email || "", company: merged.company?.name || "", contactName: merged.company?.contact || "", topicsCount: (merged.topics || []).length, usersCount: (users || []).length }),
         }, 30000); // aligned to the sheet function's own 24s upstream abort + the 26s function ceiling; was 45s, which left the client waiting ~19s after the platform would already have killed the function
         if (sres.ok) { const sd = await sres.json().catch(() => ({})); sheetUrl = sd.url || null; }
-      } catch (e) { console.error("Sheet generation failed (non-fatal)", e); }
+        else if (sres.status === 504) sheetPending = true; // upstream hit its 24s abort but the Apps Script keeps running server-side: it will write the link back and fire its own Slack alert
+      } catch (e) {
+        if (e && e.name === "AbortError") sheetPending = true; // client's own wait elapsed — same reasoning: the Sheet is likely still being built server-side
+        console.error("Sheet generation failed (non-fatal)", e);
+      }
       setSheetLink(sheetUrl);
       record.sheetUrl = sheetUrl;
 
@@ -2580,7 +2584,12 @@ function OnboardingApp({ seed, seedId, seedError, onBriefSent, onSeeProserv }) {
       // succeeded (else there's nothing to update; the Sheet/Slack path, if it ran,
       // still counts as delivered).
       if (saveOk) {
-        if (!sheetUrl) record.notifyFallback = true;
+        // Only ask the server to fire the fallback "completed but no Sheet" alert
+        // when the Sheet genuinely won't arrive. On a timeout (sheetPending) the
+        // Apps Script is still running and will write the link back and fire its own
+        // alert, so flagging here would double-alert — and often falsely claim the
+        // Sheet failed when it was seconds from done.
+        if (!sheetUrl && !sheetPending) record.notifyFallback = true;
         try {
           await fetchWithTimeout(SESSION_ENDPOINT, {
             method:"POST", headers:{"Content-Type":"application/json"},
