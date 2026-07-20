@@ -82,6 +82,9 @@ function doPost(e) {
       // Copy the master template into the destination folder (never touch the master).
       const copy = DriveApp.getFileById(TEMPLATE_ID).makeCopy(title, DriveApp.getFolderById(DEST_FOLDER_ID));
       const ss = SpreadsheetApp.openById(copy.getId());
+      // Log the actual tab names so a fill that can't find its tab is diagnosable
+      // from the execution log (the fill matches tabs by name at runtime).
+      console.log("Requirements Sheet tabs: " + ss.getSheets().map(function (s) { return s.getName(); }).join(" | "));
 
       // Populate each tab best-effort; one failure must not abort the rest.
       safe_(function () { fillBusinessObjectives_(ss, company); });
@@ -396,10 +399,12 @@ function writeRows_(sh, header, items, toRow) {
 
 function fillUsers_(ss, users) {
   if (!users.length) return;
-  const sh = sheetLike_(ss, /users/);
-  if (!sh) return;
-  const header = detectHeader_(sh, { firstName: /first name/, lastName: /last name/, role: /role|department/, email: /e-?mail/, access: /access/ });
-  if (!header) return;
+  // Broadened from /users/: the template tab may be "User list" (singular), "Team",
+  // etc. The other tabs don't contain these words, so this can't mis-match.
+  const sh = sheetLike_(ss, /user|team/);
+  if (!sh) { console.log("fillUsers_: no tab matched /user|team/ — see the tab list above"); return; }
+  const header = detectHeader_(sh, { firstName: /first ?name|^name$/, lastName: /last ?name|surname/, role: /role|department|team/, email: /e-?mail/, access: /access|permission|licen/ });
+  if (!header) { console.log("fillUsers_: header not detected on '" + sh.getName() + "'"); return; }
   writeRows_(sh, header, users, function (u) {
     return { firstName: u.firstName || "", lastName: u.lastName || "", role: u.role || "", email: u.email || "", access: u.access || "" };
   });
@@ -408,9 +413,9 @@ function fillUsers_(ss, users) {
 function fillTopics_(ss, topics) {
   if (!topics.length) return;
   const sh = sheetLike_(ss, /topic/);
-  if (!sh) return;
+  if (!sh) { console.log("fillTopics_: no tab matched /topic/ — see the tab list above"); return; }
   const header = detectHeader_(sh, { group: /group/, name: /topic.*name|filter name/, keywords: /keyword/, urls: /url/, hashtags: /hashtag/, comments: /comment/ });
-  if (!header) return;
+  if (!header) { console.log("fillTopics_: header not detected on '" + sh.getName() + "'"); return; }
   writeRows_(sh, header, topics, function (t) {
     return { group: t.group || "", name: t.name || "", keywords: t.keywords || "", urls: t.urls || "", hashtags: t.hashtags || "", comments: t.comments || t.rationale || "" };
   });
@@ -419,9 +424,9 @@ function fillTopics_(ss, topics) {
 function fillChannels_(ss, channels) {
   if (!channels.length) return;
   const sh = sheetLike_(ss, /channel|social/);
-  if (!sh) return;
+  if (!sh) { console.log("fillChannels_: no tab matched /channel|social/ — see the tab list above"); return; }
   const header = detectHeader_(sh, { author: /author/, type: /channel type|^type$/, url: /url/, owned: /owned|public/ });
-  if (!header) return;
+  if (!header) { console.log("fillChannels_: header not detected on '" + sh.getName() + "'"); return; }
   writeRows_(sh, header, channels, function (ch) {
     return { author: ch.author || "", type: ch.type || "", url: ch.url || "", owned: ch.owned || "" };
   });
@@ -431,7 +436,7 @@ function fillChannels_(ss, channels) {
 // Reports detected by name/objective/details/comments; alerts by name/type/details.
 function fillReportsAlerts_(ss, reports, alerts) {
   const sh = sheetLike_(ss, /report|dashboard|alert/);
-  if (!sh) return;
+  if (!sh) { console.log("fillReportsAlerts_: no tab matched /report|dashboard|alert/ — see the tab list above"); return; }
   if (reports.length) {
     const rh = detectHeader_(sh, { name: /report|dashboard|^name|title/, objective: /objective/, details: /detail|kpi|time/, comments: /comment/ });
     if (rh) writeRows_(sh, rh, reports, function (r) {
