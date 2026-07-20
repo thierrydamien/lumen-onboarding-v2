@@ -2506,6 +2506,14 @@ function OnboardingApp({ seed, seedId, seedError, onBriefSent, onSeeProserv }) {
     if (saveT.current) clearTimeout(saveT.current); // cancel any pending in-progress autosave so it can't land after the completed record
     setSending(true); setSendErr(null);
     try {
+      // Belt-and-suspenders: guarantee the client contact name + email reach the
+      // brief by falling back to the sales-page seed when the review fields are
+      // blank. Seeded links always carry these, so a blanked field can never lose
+      // the Main Point of Contact / Requirements Completed By values downstream.
+      if (seed) {
+        const _co = merged.company || {};
+        merged = { ...merged, company: { ..._co, contact: _co.contact || seed.contactName || "", email: _co.email || seed.email || "" } };
+      }
       const XLSX = await loadXLSX();
       const { wb, filename } = buildWorkbook(XLSX, merged, users || []);
       const sentAt = new Date();
