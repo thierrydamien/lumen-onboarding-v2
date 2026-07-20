@@ -284,7 +284,12 @@ function fillBusinessObjectives_(ss, c) {
     if (!a) continue;
     for (let k = 0; k < rules.length; k++) {
       if (rules[k][0].test(a)) {
-        if (rules[k][1] !== "") sh.getRange(r + 1, 2).setValue(cellSafe_(rules[k][1]));
+        // Resilient per-cell write: a reject-input dropdown (e.g. Time Zone) used to
+        // throw and abort the WHOLE tab via safe_, dropping every later field —
+        // which is why "Main Point of Contact" (the last rule) kept the template
+        // placeholder. writeCell_ clears validation and retries, then skips one bad
+        // cell without losing the rest.
+        writeCell_(sh, r + 1, 2, rules[k][1]);
         break;
       }
     }
@@ -360,6 +365,27 @@ function cellSafe_(v) {
 // safe_), so only one partial row ever filled. Here each cell is independent: try
 // to write; on failure clear that cell's validation and retry; still failing, log
 // and skip — so every writable cell lands regardless of the others.
+// Remove protections that would block writes to a data region: any RANGE
+// protection overlapping [top..top+height-1] x [left..left+width-1], plus any
+// whole-SHEET protection. Scoped to the fill region so header/instruction/formula
+// protections outside it survive. Best-effort and fully guarded so it is a no-op
+// where the Sheets service or getProtections isn't available (e.g. the test harness).
+function clearRegionProtections_(sh, top, left, height, width) {
+  const bottom = top + height - 1, right = left + width - 1;
+  try {
+    const rp = sh.getProtections(SpreadsheetApp.ProtectionType.RANGE) || [];
+    for (let i = 0; i < rp.length; i++) {
+      try {
+        const rg = rp[i].getRange();
+        const pT = rg.getRow(), pB = pT + rg.getNumRows() - 1, pL = rg.getColumn(), pR = pL + rg.getNumColumns() - 1;
+        if (pT <= bottom && pB >= top && pL <= right && pR >= left) rp[i].remove();
+      } catch (e) { /* one protection we can't inspect/remove — skip it */ }
+    }
+    const sps = sh.getProtections(SpreadsheetApp.ProtectionType.SHEET) || [];
+    for (let j = 0; j < sps.length; j++) { try { sps[j].remove(); } catch (e) {} }
+  } catch (e) { console.log("clearRegionProtections_ on '" + sh.getName() + "': " + e); }
+}
+
 // Grow the sheet so `lastRow` (1-based) is addressable. No-op when it already fits.
 function ensureRows_(sh, lastRow) {
   try {
@@ -417,6 +443,14 @@ function writeRows_(sh, header, items, toRow) {
   // and the whole section silently drops.
   ensureRows_(sh, maxRow);
   const region = sh.getRange(firstDataRow, minCol + 1, maxRow - firstDataRow + 1, width);
+  // A protected tab/range blocks every write (setValue/setValues throw) and
+  // clearDataValidations does NOT touch protection — the signature is a tab that
+  // stays empty with a clean run. The template's Users tab (it governs admin
+  // access) is the likely one to carry protection, which a template copy inherits.
+  // Clear protection over the DATA region (and any whole-sheet protection) so the
+  // fill can write; scoped to the rows we fill, so header/instruction protections
+  // are left alone. Best-effort — never breaks the fill.
+  clearRegionProtections_(sh, firstDataRow, minCol + 1, maxRow - firstDataRow + 1, width);
   try { region.clearDataValidations(); } catch (e) {}
   let grid = null;
   try { grid = region.getValues(); } catch (e) { grid = null; }
@@ -453,6 +487,7 @@ function fillUsers_(ss, users) {
   const sh = sheetLike_(ss, /user|team/) ||
     findTabByHeader_(ss, { firstName: /first ?name/, lastName: /last ?name|surname/, email: /e-?mail/, access: /access|permission|licen/ });
   if (!sh) { console.log("fillUsers_: no tab matched /user|team/ (and no content match) — see the tab list above"); return; }
+  console.log("fillUsers_: tab='" + sh.getName() + "', received " + users.length + " user(s)");
   const header = detectHeader_(sh, { firstName: /first ?name|^name$/, lastName: /last ?name|surname/, role: /role|department|team/, email: /e-?mail/, access: /access|permission|licen/ });
   if (!header) { console.log("fillUsers_: header not detected on '" + sh.getName() + "'"); return; }
   writeRows_(sh, header, users, function (u) {
@@ -480,8 +515,17 @@ function fillChannels_(ss, channels) {
   const header = detectHeader_(sh, { author: /author/, type: /channel type|^type$/, url: /url/, owned: /owned|public/ });
   if (!header) { console.log("fillChannels_: header not detected on '" + sh.getName() + "'"); return; }
   writeRows_(sh, header, channels, function (ch) {
-    return { author: ch.author || "", type: ch.type || "", url: ch.url || "", owned: ch.owned || "" };
+    return { author: ch.author || "", type: ch.type || "", url: ch.url || "", owned: ownedLabel_(ch.owned) };
   });
+}
+
+// The brief carries owned as a boolean or the strings "true"/"false" (the model's
+// CHANNELS marker), which Sheets renders as TRUE/FALSE. Map to the template's
+// "Owned"/"Public" wording; pass through any already-worded value; blank stays blank.
+function ownedLabel_(v) {
+  if (v === true || v === "true" || v === "TRUE") return "Owned";
+  if (v === false || v === "false" || v === "FALSE") return "Public";
+  return v || "";
 }
 
 // Reports/Dashboards/Alerts: ONE tab with TWO stacked sections, each with its own
