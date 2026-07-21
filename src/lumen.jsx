@@ -1970,7 +1970,17 @@ function ExportModal({ cdata, wState, messages, onClose, onExport, onSend, sendi
   // only) and the %%TOPICS%% marker (also urls/hashtags/comments). Merge by name so
   // the marker's urls/hashtags survive into the brief instead of being dropped when
   // the card widget was used.
-  const [topics,setTopics]= useState(() => mergeTopics(gw("TOPICS") || [], cdata.topics || []));
+  // Union ALL confirmed TOPIC_SUGGESTION batches, not just the last one gw() returns:
+  // the flow can present several batches across turns, and taking only the last
+  // dropped earlier confirmed topics from the card set (they survived only if the
+  // model happened to re-emit the full marker). Later batch wins on a same-name edit.
+  const allTopicCards = () => {
+    const es = Object.entries(wState||{}).filter(([k,v])=>k.endsWith("-TOPICS")&&(v===true||v?.submitted)).sort((a,b)=>(parseInt(a[0])||0)-(parseInt(b[0])||0));
+    const byName = {}, order = [];
+    es.forEach(([,v]) => { const d = v && v.data; if (Array.isArray(d)) d.forEach(t => { const k = String((t&&t.name)||"").trim().toLowerCase(); if (!k) return; if (!(k in byName)) order.push(k); byName[k] = t; }); });
+    return order.map(k => byName[k]);
+  };
+  const [topics,setTopics]= useState(() => mergeTopics(allTopicCards(), cdata.topics || []));
   const [chans,setChans]= useState((cdata.channels||[]).map((c,i)=>({...c,id:i})));
   const [reports,setReports]= useState((cdata.reports||[]).map((r,i)=>({...r,id:i})));
   const [alerts,setAlerts]= useState((cdata.alerts||[]).map((a,i)=>({...a,id:i})));
@@ -2344,7 +2354,7 @@ function OnboardingApp({ seed, seedId, seedError, onBriefSent, onSeeProserv }) {
     if (!started || sent || messages.length === 0) return;
     if (saveT.current) clearTimeout(saveT.current);
     saveT.current = setTimeout(() => {
-      setDraftOk(lsSaveDraft(seedId, { messages, progress, wState, cdata, history: histRef.current, uiLang, sid: sidRef.current, startedAt: startedAtRef.current, savedAt: Date.now() }));
+      setDraftOk(lsSaveDraft(seedId, { messages, progress, wState, cdata, history: histRef.current, uiLang, sid: sidRef.current, startedAt: startedAtRef.current, apiCalls: apiCountRef.current, tokens: { ...usageRef.current }, savedAt: Date.now() }));
       // Server upsert. Best-effort, never blocks the chat. Skipped while a send is
       // in flight so a late autosave can't overwrite the completed record.
       const pct = (progress && progress.percent) || 0;
@@ -2585,7 +2595,12 @@ function OnboardingApp({ seed, seedId, seedError, onBriefSent, onSeeProserv }) {
         const xlsxBase64 = XLSX.write(wb, { type: "base64", bookType: "xlsx" });
         const sres = await fetchWithTimeout(SHEET_ENDPOINT, {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ sessionId: saveOk ? sidRef.current : undefined, xlsxBase64, brief: { ...merged, company: { ...merged.company, onboardingLanguage: uiLang }, users: users || [] }, filename, clientEmail: merged.company?.email || "", company: merged.company?.name || "", contactName: merged.company?.contact || "", topicsCount: (merged.topics || []).length, usersCount: (users || []).length }),
+          // Always send sessionId (not only when the first save succeeded): it is the
+          // Apps Script's idempotency key AND the writeback target. Withholding it on a
+          // failed/slow save let a resend copy a SECOND Sheet + re-send the branded
+          // email + re-fire Slack, and killed the link writeback. The completed record
+          // is persisted below on every success-ish path, so the Slack deep link resolves.
+          body: JSON.stringify({ sessionId: sidRef.current, xlsxBase64, brief: { ...merged, company: { ...merged.company, onboardingLanguage: uiLang }, users: users || [] }, filename, clientEmail: merged.company?.email || "", company: merged.company?.name || "", contactName: merged.company?.contact || "", topicsCount: (merged.topics || []).length, usersCount: (users || []).length }),
         }, 30000); // aligned to the sheet function's own 24s upstream abort + the 26s function ceiling; was 45s, which left the client waiting ~19s after the platform would already have killed the function
         if (sres.ok) { const sd = await sres.json().catch(() => ({})); sheetUrl = sd.url || null; }
         else {
@@ -2598,7 +2613,10 @@ function OnboardingApp({ seed, seedId, seedError, onBriefSent, onSeeProserv }) {
           // {error:"sheet_timeout"}; a platform-level 502/504 gateway kill has no such body.
           const sd = await sres.json().catch(() => null);
           const err = sd && sd.error;
-          if (err === "sheet_timeout" || !err) sheetPending = true;
+          // sheet_unreachable = sheet.js's own network throw to the Apps Script: the
+          // request may well have landed and be running, so defer like a timeout rather
+          // than firing a false/duplicate failure alert.
+          if (err === "sheet_timeout" || err === "sheet_unreachable" || !err) sheetPending = true;
         }
       } catch (e) {
         if (e && e.name === "AbortError") sheetPending = true; // client's own wait elapsed — same reasoning: the Sheet is likely still being built server-side
@@ -2614,12 +2632,13 @@ function OnboardingApp({ seed, seedId, seedError, onBriefSent, onSeeProserv }) {
       // CREATES the completed record (session.js upserts by id), so the dashboard
       // shows it completed instead of leaving the client stuck "in progress" and
       // tripping a false stalled alert 24h later.
-      if (saveOk || sheetUrl) {
-        // Only ask the server to fire the fallback "completed but no Sheet" alert
-        // when the Sheet genuinely won't arrive. On a timeout (sheetPending) the
-        // Apps Script is still running and will write the link back and fire its own
-        // alert, so flagging here would double-alert — and often falsely claim the
-        // Sheet failed when it was seconds from done.
+      if (saveOk || sheetUrl || sheetPending) {
+        // Persist on the pending path too (not just saveOk/sheetUrl): when the first
+        // save failed AND the Sheet call timed out, this write CREATES the completed
+        // record so the Apps Script writeback has a target and the dashboard shows it.
+        // Only ask the server to fire the fallback "completed but no Sheet" alert when
+        // the Sheet genuinely won't arrive; on a timeout the Apps Script is still
+        // running and will write the link back and fire its own alert.
         if (!sheetUrl && !sheetPending) record.notifyFallback = true;
         try {
           await fetchWithTimeout(SESSION_ENDPOINT, {
@@ -2633,8 +2652,10 @@ function OnboardingApp({ seed, seedId, seedError, onBriefSent, onSeeProserv }) {
       // session store (dashboard) OR the Sheet (which also fires the Slack alert
       // and drops the file in the Proserv folder). If BOTH failed, don't show a
       // false "sent" — keep the draft and the modal open so the client can retry
-      // instead of walking away thinking it went through.
-      if (!saveOk && !sheetUrl) {
+      // instead of walking away thinking it went through. A pending Sheet counts as
+      // delivered: the record was just persisted and the Apps Script is finishing it
+      // (a retry is idempotent now that sessionId is always sent).
+      if (!saveOk && !sheetUrl && !sheetPending) {
         setSendErr("send-failed");
         return; // the `finally` below still re-enables the Send button
       }
@@ -2703,8 +2724,11 @@ function OnboardingApp({ seed, seedId, seedError, onBriefSent, onSeeProserv }) {
     const sd = seed, keepSid = sidRef.current;
     resetSession(); setStarted(true); setLoading(true);
     startedAtRef.current = Date.now(); apiCountRef.current = 0;
-    if (sd && keepSid) {
-      sidRef.current = keepSid;
+    if (sd) {
+      // Preserve the session id only when one already exists, but prefill the company
+      // on EVERY seeded start — gating the prefill on keepSid left the panel/company
+      // blank on the first Start until the model's first %%COMPANY%% marker returned.
+      if (keepSid) sidRef.current = keepSid;
       setCdata(p=>({...p, company:{name:sd.company||"", email:sd.email||"", industry:sd.industry||"", useCase:"", contact:sd.contactName||""}}));
     }
     if (msgRef.current) msgRef.current.scrollTop = 0;
@@ -2734,6 +2758,10 @@ function OnboardingApp({ seed, seedId, seedError, onBriefSent, onSeeProserv }) {
     if (saved.uiLang) setUiLang(saved.uiLang);
     if (saved.sid) sidRef.current = saved.sid;
     startedAtRef.current = saved.startedAt || Date.now();
+    // Rehydrate usage so the dashboard's api-calls/tokens/cost aren't undercounted
+    // after a resume (they were reset to 0 on resume, dropping all pre-pause usage).
+    apiCountRef.current = saved.apiCalls || 0;
+    usageRef.current = saved.tokens ? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, ...saved.tokens } : { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
     setMessages(saved.messages); setProgress(saved.progress); setWState(saved.wState||{});
     prevSecRef.current = saved.progress?.section || null;
     if (saved.cdata) setCdata(saved.cdata);

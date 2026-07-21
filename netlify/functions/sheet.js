@@ -152,8 +152,12 @@ export default async (req) => {
         console.error("Apps Script sheet exceeded the internal 24s budget — aborted");
         return json(504, { error: "sheet_timeout" });
       }
+      // Our own transport throw reaching the Apps Script. The request may well have
+      // landed and be running, so signal a distinct code (not "sheet_failed") — the
+      // client treats it as pending and defers to the Apps Script writeback + its own
+      // alert, rather than firing a false/duplicate "Sheet could not be generated".
       console.error("Apps Script sheet unreachable", err);
-      return json(502, { error: "sheet_failed" });
+      return json(502, { error: "sheet_unreachable" });
     } finally {
       clearTimeout(abortT);
     }
