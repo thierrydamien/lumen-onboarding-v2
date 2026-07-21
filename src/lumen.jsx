@@ -1533,7 +1533,7 @@ function Stepper({ progress, dark, compact, lang }) {
   return <div style={{display:"flex",alignItems:"flex-start",width:"100%"}}>{SECTION_KEYS.map((key,i) => {
     const done = isDone(i), cur = isCur(i);
     return <div key={key} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",position:"relative"}}>
-      {i < SECTION_KEYS.length-1 && <div style={{position:"absolute",top:11,left:"50%",width:"100%",height:2,background:done?F:inactive,zIndex:0,transition:"background 0.4s"}}/>}
+      {i < SECTION_KEYS.length-1 && <div style={{position:"absolute",top:11,insetInlineStart:"50%",width:"100%",height:2,background:done?F:inactive,zIndex:0,transition:"background 0.4s"}}/>}
       <div style={{width:22,height:22,borderRadius:"50%",border:`2px solid ${done||cur?F:inactive}`,background:done?F:circleBg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,color:done?"white":cur?F:muted,zIndex:1,transition:"all 0.3s",boxShadow:cur&&!done?`0 0 0 4px ${A}22`:"none"}}>{done?<span style={{display:"inline-flex",animation:REDUCE_MOTION?"none":"popIn .3s ease-out"}}>✓</span>:i+1}</div>
       {(!compact || cur) && <div style={{fontSize:10,marginTop:4,color:done||cur?P:muted,fontWeight:done||cur?600:400,whiteSpace:"nowrap"}}>{L(SECTION_LABEL_KEYS[key],lang)}</div>}
     </div>;
@@ -1607,7 +1607,11 @@ function UserForm({ onSubmit, onSkip, initialData=[], lang }) {
   const [errors,setErrors] = useState({});
   const upd = (i,k,v) => setUsers(u=>u.map((x,j)=>j===i?{...x,[k]:v}:x));
   const vEmail = (i,v) => setErrors(e=>({...e,[`${i}-email`]:v&&!EMAIL_RE.test(v)?WL("invalidEmail",lang):""}));
-  const valid = users.every(u=>u.firstName&&u.email&&EMAIL_RE.test(u.email));
+  // Ignore fully-empty rows so a trailing blank "+ Add user" row can't permanently
+  // disable Confirm with no way to clear it; require >=1 filled row and that every
+  // filled row is valid. Submit only the filled rows.
+  const filled = users.filter(u=>u.firstName||u.lastName||u.email||u.role);
+  const valid = filled.length>0 && filled.every(u=>u.firstName&&u.email&&EMAIL_RE.test(u.email));
   // Flag a missing first name only once the row is otherwise in use — an untouched
   // empty row shouldn't glow red, but a filled-in row missing its one required
   // name field should say so instead of just greying out Confirm.
@@ -1631,7 +1635,7 @@ function UserForm({ onSubmit, onSkip, initialData=[], lang }) {
     {!valid && <div style={{fontSize:11,color:"#92400e",marginTop:6}}>{WL("confirmUsersHint",lang)}</div>}
     <div style={{display:"flex",gap:8,marginTop:4}}>
       <button onClick={()=>setUsers(u=>[...u,empty()])} style={{background:"transparent",border:"1px solid #e2e8f0",borderRadius:8,padding:"7px 14px",color:"#64748b",cursor:"pointer",fontSize:12}}>{WL("addUser",lang)}</button>
-      <button onClick={()=>valid&&onSubmit(users)} disabled={!valid} style={{background:valid?P:"#e2e8f0",color:"white",border:"none",borderRadius:8,padding:"7px 20px",fontSize:13,fontWeight:600,cursor:valid?"pointer":"default"}}>{WL("confirmUsers",lang)}</button>
+      <button onClick={()=>valid&&onSubmit(filled)} disabled={!valid} style={{background:valid?P:"#e2e8f0",color:"white",border:"none",borderRadius:8,padding:"7px 20px",fontSize:13,fontWeight:600,cursor:valid?"pointer":"default"}}>{WL("confirmUsers",lang)}</button>
       {onSkip && <button onClick={onSkip} style={{background:"transparent",border:"1px solid #e2e8f0",borderRadius:8,padding:"7px 16px",fontSize:13,color:"#64748b",cursor:"pointer"}}>{WL("skip",lang)}</button>}
     </div>
   </div>;
@@ -1938,16 +1942,26 @@ function ExportModal({ cdata, wState, messages, onClose, onExport, onSend, sendi
   // the marker's urls/hashtags survive into the brief instead of being dropped when
   // the card widget was used.
   const [topics,setTopics]= useState(() => {
-    const cards = gw("TOPICS"), markers = cdata.topics || [];
-    const byName = {};
-    markers.forEach(m => { if (m && m.name) byName[String(m.name).trim().toLowerCase()] = m; });
-    const base = (cards && cards.length) ? cards : markers;
-    return base.map((tp,i) => {
-      const m = byName[String(tp.name||"").trim().toLowerCase()] || {};
-      return { name:tp.name||m.name||"", keywords:tp.keywords||m.keywords||"",
-        rationale:tp.rationale||m.rationale||"", urls:tp.urls||m.urls||"",
-        hashtags:tp.hashtags||m.hashtags||"", comments:tp.comments||m.comments||"",
-        group:tp.group||m.group||"",
+    // Union confirmed cards with the %%TOPICS%% marker by name. The noise-check step
+    // re-emits the marker with Boolean NOT exclusions folded into keywords AFTER the
+    // card was confirmed, so for the fields the noise check updates
+    // (keywords/urls/hashtags/comments) the MARKER wins; for client-facing display
+    // (name/rationale/group) the card wins. Union (not card-as-base) also keeps a
+    // topic that exists only in the marker — added after the cards were confirmed —
+    // from being dropped. Client can still edit everything in this modal.
+    const cards = gw("TOPICS") || [], markers = cdata.topics || [];
+    const nm = x => String((x && x.name) || "").trim().toLowerCase();
+    const cardBy = {}, markBy = {}, order = [], seen = new Set();
+    cards.forEach(c => { const k = nm(c); if (k) cardBy[k] = c; });
+    markers.forEach(m => { const k = nm(m); if (k) markBy[k] = m; });
+    cards.forEach(c => { const k = nm(c); if (k && !seen.has(k)) { seen.add(k); order.push(k); } });
+    markers.forEach(m => { const k = nm(m); if (k && !seen.has(k)) { seen.add(k); order.push(k); } });
+    return order.map((k,i) => {
+      const tp = cardBy[k] || {}, m = markBy[k] || {};
+      return { name:tp.name||m.name||"",
+        keywords:m.keywords||tp.keywords||"", urls:m.urls||tp.urls||"",
+        hashtags:m.hashtags||tp.hashtags||"", comments:m.comments||tp.comments||"",
+        rationale:tp.rationale||m.rationale||"", group:tp.group||m.group||"",
         id:i, confirmed:!(isGuess(tp)||isGuess(m)) };
     });
   });
@@ -2568,7 +2582,18 @@ function OnboardingApp({ seed, seedId, seedError, onBriefSent, onSeeProserv }) {
           body: JSON.stringify({ sessionId: saveOk ? sidRef.current : undefined, xlsxBase64, brief: { ...merged, company: { ...merged.company, onboardingLanguage: uiLang }, users: users || [] }, filename, clientEmail: merged.company?.email || "", company: merged.company?.name || "", contactName: merged.company?.contact || "", topicsCount: (merged.topics || []).length, usersCount: (users || []).length }),
         }, 30000); // aligned to the sheet function's own 24s upstream abort + the 26s function ceiling; was 45s, which left the client waiting ~19s after the platform would already have killed the function
         if (sres.ok) { const sd = await sres.json().catch(() => ({})); sheetUrl = sd.url || null; }
-        else if (sres.status === 504) sheetPending = true; // upstream hit its 24s abort but the Apps Script keeps running server-side: it will write the link back and fire its own Slack alert
+        else {
+          // Distinguish a GENUINE failure (the Apps Script ran and errored, or Sheets
+          // isn't configured — no Sheet will ever arrive, so the fallback alert should
+          // fire) from a TIMEOUT or a PLATFORM KILL (the Apps Script is likely still
+          // running and will write the link back and fire its own alert — defer, so we
+          // don't double- or false-alert). sheet.js signals a real failure with a JSON
+          // {error:"sheet_failed"|"sheets_not_configured"|...}; its own 24s abort returns
+          // {error:"sheet_timeout"}; a platform-level 502/504 gateway kill has no such body.
+          const sd = await sres.json().catch(() => null);
+          const err = sd && sd.error;
+          if (err === "sheet_timeout" || !err) sheetPending = true;
+        }
       } catch (e) {
         if (e && e.name === "AbortError") sheetPending = true; // client's own wait elapsed — same reasoning: the Sheet is likely still being built server-side
         console.error("Sheet generation failed (non-fatal)", e);
@@ -2578,12 +2603,12 @@ function OnboardingApp({ seed, seedId, seedError, onBriefSent, onSeeProserv }) {
 
       // Second write: attach the Sheet link so the dashboard can open it, or — when
       // the Sheet step failed — flag the record so the SERVER fires a fallback
-      // completion alert. The brief's Slack alert is normally fired by the Apps
-      // Script on Sheet creation; if that never happened, without this flag a
-      // completed brief reaches Proserv silently. Only when the first save
-      // succeeded (else there's nothing to update; the Sheet/Slack path, if it ran,
-      // still counts as delivered).
-      if (saveOk) {
+      // completion alert. Runs when the first save succeeded OR when the Sheet
+      // delivered despite a failed first save: in that recovery case this write
+      // CREATES the completed record (session.js upserts by id), so the dashboard
+      // shows it completed instead of leaving the client stuck "in progress" and
+      // tripping a false stalled alert 24h later.
+      if (saveOk || sheetUrl) {
         // Only ask the server to fire the fallback "completed but no Sheet" alert
         // when the Sheet genuinely won't arrive. On a timeout (sheetPending) the
         // Apps Script is still running and will write the link back and fire its own
@@ -2796,7 +2821,10 @@ function OnboardingApp({ seed, seedId, seedError, onBriefSent, onSeeProserv }) {
 
   const renderWidget = useCallback((type, mi, topicSuggestions) => {
     const key = `${mi}-${type}`;
-    if (Object.entries(wState).some(([k,v])=>k!==key&&k.endsWith(`-${type}`)&&(v===true||v?.submitted))) return null;
+    // Suppress a duplicate single-shot widget already submitted on another turn — but
+    // NOT TOPICS: the flow legitimately shows multiple TOPIC_SUGGESTION batches across
+    // turns ("anything missing?" -> a new batch), and each batch must stay reviewable.
+    if (type !== "TOPICS" && Object.entries(wState).some(([k,v])=>k!==key&&k.endsWith(`-${type}`)&&(v===true||v?.submitted))) return null;
     const ws = wState[key], sub = ws===true||ws?.submitted===true;
     if (sub) return <div style={{padding:"12px 16px",background:C.hi,borderRadius:10,border:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
       <div style={{fontSize:13,color:C.text,fontWeight:600}}>{WL(ws?.data==="__skip__"?"skippedLbl":"submittedLbl",uiLang)}</div>
