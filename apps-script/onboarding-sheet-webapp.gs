@@ -87,6 +87,12 @@ function doPost(e) {
       // it, so computing it here (before the fills / flush) means a hiccup in a later
       // step can never leave us without the link to hand back.
       const url = copy.getUrl();
+      // Claim the sessionId the moment the Sheet exists, BEFORE the (slow) fills,
+      // share, email and Slack. A retry that arrives while this run is still filling
+      // then sees the claim and returns THIS url instead of copying a second Sheet
+      // and re-firing the branded email + Slack. Returning a still-filling Sheet's
+      // url on a retry beats a duplicate document.
+      if (idemKey) cache.put(idemKey, url, 21600); // 6h (cache max); real retries land far sooner
       // Log the actual tab names so a fill that can't find its tab is diagnosable
       // from the execution log (the fill matches tabs by name at runtime).
       console.log("Requirements Sheet tabs: " + ss.getSheets().map(function (s) { return s.getName(); }).join(" | "));
@@ -122,10 +128,6 @@ function doPost(e) {
           sendClientEmail_(clientEmail, first, url, company.onboardingLanguage || "English");
         });
       }
-
-      // Claim the sessionId BEFORE the Slack post: if the post is slow, a retry
-      // arriving now sees the claim and won't create a second Sheet or re-alert.
-      if (idemKey) cache.put(idemKey, url, 21600); // 6h (cache max); real retries land far sooner
 
       try { postCompletionSlack_(body, company, url); } catch (err) { /* non-fatal */ }
 
@@ -427,8 +429,13 @@ function writeRows_(sh, header, items, toRow) {
 
   // Some tabs give each item a multi-row MERGED slot; writing to consecutive rows
   // would stomp inside slot 1. Detect slots from one merge probe over the region.
+  // Clamp the probe height to the sheet's real row count: an unclamped
+  // items.length*6+6 overshoots the grid for ~13+ merged-slot items (e.g. Topics),
+  // and getRange THROWS out of bounds — which the catch swallowed, dropping ALL
+  // merge detection so every item after the first collapsed onto a slot interior.
   let merges = [];
-  try { merges = sh.getRange(firstDataRow, minCol + 1, items.length * 6 + 6, width).getMergedRanges() || []; } catch (e) {}
+  const probeRows = Math.max(1, Math.min(items.length * 6 + 6, sh.getMaxRows() - firstDataRow + 1));
+  try { merges = sh.getRange(firstDataRow, minCol + 1, probeRows, width).getMergedRanges() || []; } catch (e) {}
   function slotAt(r) {
     let anchor = r, bottom = r;
     for (let k = 0; k < merges.length; k++) {
