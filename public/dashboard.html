@@ -484,9 +484,9 @@
       .sort(function (a, b) { return b.total - a.total; });
   }
   // Horizontal bars. items: [{label, value, sub}]. Widths scale to the largest value.
-  function barsHtml(items) {
+  function barsHtml(items, denom) {
     if (!items.length) return '<div class="nodata">No data yet.</div>';
-    var m = Math.max.apply(null, items.map(function (i) { return i.value; })) || 1;
+    var m = denom || Math.max.apply(null, items.map(function (i) { return i.value; })) || 1;
     return items.map(function (i) {
       var pct = Math.max(2, Math.min(100, Math.round(i.value / m * 100)));
       return '<div class="barrow"><span class="lbl" title="' + esc(i.label) + '">' + esc(i.label) + '</span>' +
@@ -552,12 +552,18 @@
     }
     var byRep = toBars(groupCounts(list, function (s) { return s.owner; }), function (k) { return k; });
     var byPkg = toBars(groupCounts(list, function (s) { return s.pkg; }), pkgLabel);
-    var byLang = toBars(groupCounts(list, function (s) { return s.lang; }), function (k) { return k; });
+    // Language: show each language's SHARE OF TOTAL (the language mix) rather than a
+    // per-language completion rate — that's the useful "who are our clients" read.
+    var langGroups = groupCounts(list, function (s) { return s.lang; });
+    var langTotal = langGroups.reduce(function (a, g) { return a + g.total; }, 0);
+    var byLang = langGroups.slice(0, 8).map(function (g) {
+      return { label: g.key, value: g.total, sub: langTotal ? Math.round(g.total / langTotal * 100) + "% of total" : "" };
+    });
     box.innerHTML =
       '<div class="chart"><h4>Onboarding funnel</h4>' + funnelHtml(linksSentN, started.length, completedN) + '</div>' +
       '<div class="chart"><h4>Completed per week</h4>' + sparkHtml(weeklyCompletions(list)) + '</div>' +
       '<div class="chart"><h4>By package</h4>' + barsHtml(byPkg) + '</div>' +
-      '<div class="chart"><h4>By chat language</h4>' + barsHtml(byLang) + '</div>' +
+      '<div class="chart"><h4>By chat language</h4>' + barsHtml(byLang, langTotal) + '</div>' +
       '<div class="chart wide"><h4>By consultant · links prepared &amp; completion rate</h4>' + barsHtml(byRep) + '</div>';
     wrap.hidden = false;
     // Play the grow-in animation only the first time the panel appears.
