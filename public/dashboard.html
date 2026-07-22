@@ -136,7 +136,52 @@
   .banner button { margin-left:auto; flex-shrink:0; background:#92400e; color:#fff; border:none; border-radius:8px; padding:7px 13px; font-size:12px; font-weight:700; cursor:pointer; font-family:inherit; }
   /* Feature 6: small "Copy handoff" action in the handoff section header. */
   .copybtn { float:right; background:var(--purple-soft); color:var(--purple); border:none; border-radius:8px; padding:3px 10px; font-size:10.5px; font-weight:700; cursor:pointer; font-family:inherit; text-transform:none; letter-spacing:normal; }
-  @media (max-width:560px){ .wrap{padding:0 12px;} .kpis{grid-template-columns:1fr 1fr;} th,td{padding:9px 8px;} .barlabel{display:none;} }
+
+  /* ---- Insights panel (charts) ---- */
+  .inshead { display:flex; align-items:center; gap:10px; margin:2px 2px 12px; }
+  .inshead h2 { font-size:13px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); margin:0; font-weight:700; }
+  .instoggle { margin-left:auto; background:transparent; border:1px solid var(--border); border-radius:8px; padding:5px 12px; font-size:11.5px; color:var(--muted); cursor:pointer; font-family:inherit; font-weight:600; }
+  .ins { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:20px; }
+  .ins.hidden { display:none; }
+  .chart { background:#fff; border:1px solid var(--border); border-radius:14px; padding:15px 16px; box-shadow:var(--shadow-raise); }
+  .chart.wide { grid-column:1 / -1; }
+  .chart h4 { margin:0 0 13px; font-size:11.5px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); font-weight:700; }
+  .chart .nodata { font-size:12px; color:var(--muted); padding:8px 0 4px; }
+  /* One-shot entrance the first time the panel appears (the .appear class is added
+     once, then removed), so the bars grow in on load but don't re-animate or flicker
+     on every filter/search re-render. */
+  @keyframes insFade { from { opacity:0; transform:translateY(6px);} to { opacity:1; transform:none;} }
+  /* Grow via transform (not width/height): the bar keeps its final layout size, so
+     it is fully coloured the instant the one-shot animation ends and never leaves an
+     empty track. transform-origin anchors the growth to the base of each bar. */
+  @keyframes growW { from { transform:scaleX(0); } }
+  @keyframes growH { from { transform:scaleY(0); } }
+  .ins.appear .chart { animation:insFade .45s ease both; }
+  .ins.appear .barfill, .ins.appear .ffill { animation:growW .7s cubic-bezier(.2,.8,.2,1) both; transform-origin:left center; }
+  .ins.appear .cbar { animation:growH .6s cubic-bezier(.2,.8,.2,1) both; transform-origin:center bottom; }
+  @media (prefers-reduced-motion: reduce){ .ins.appear .chart, .ins.appear .barfill, .ins.appear .ffill, .ins.appear .cbar { animation:none; } }
+  /* Horizontal bars (by rep / package / language) */
+  .barrow { display:flex; align-items:center; gap:10px; margin-bottom:9px; font-size:12px; }
+  .barrow .lbl { width:34%; min-width:96px; flex-shrink:0; color:var(--teal); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .bartrack { flex:1; height:20px; background:#edeff4; border-radius:6px; overflow:hidden; }
+  .barfill { display:block; height:100%; background:linear-gradient(90deg,#6d28d9,#8b5cf6); border-radius:6px; min-width:3px; }
+  .barval { width:78px; flex-shrink:0; text-align:right; font-variant-numeric:tabular-nums; color:var(--teal); font-weight:700; }
+  .barval small { color:var(--muted); font-weight:600; }
+  /* Funnel */
+  .fstage { margin-bottom:13px; }
+  .fhead { display:flex; justify-content:space-between; align-items:baseline; font-size:12px; color:var(--muted); margin-bottom:4px; }
+  .fhead b { color:var(--teal); font-size:16px; font-variant-numeric:tabular-nums; }
+  .ftrack { height:16px; background:#edeff4; border-radius:8px; overflow:hidden; }
+  .ffill { display:block; height:100%; border-radius:8px; min-width:3px; }
+  .conv { font-size:10.5px; color:var(--muted); margin-top:3px; }
+  /* Vertical bars (completions over time) */
+  .spark { display:flex; align-items:flex-end; gap:5px; height:104px; }
+  .scol { flex:1; display:flex; flex-direction:column; justify-content:flex-end; align-items:center; height:100%; min-width:0; }
+  .cval { font-size:10px; color:var(--teal); font-weight:700; margin-bottom:3px; }
+  .cbar { width:100%; max-width:26px; background:linear-gradient(180deg,#a855f7,#7C3AED); border-radius:5px 5px 0 0; min-height:2px; }
+  .clbl { font-size:9px; color:var(--muted); margin-top:6px; white-space:nowrap; }
+
+  @media (max-width:560px){ .wrap{padding:0 12px;} .kpis{grid-template-columns:1fr 1fr;} .ins{grid-template-columns:1fr;} th,td{padding:9px 8px;} .barlabel{display:none;} }
 </style>
 </head>
 <body>
@@ -166,6 +211,10 @@
     <h1>Client onboarding sessions</h1>
     <div id="stalledBanner"></div>
     <div id="kpis" class="kpis" hidden></div>
+    <div id="insightsWrap" hidden>
+      <div class="inshead"><h2>Insights</h2><button type="button" id="insToggle" class="instoggle">Hide</button></div>
+      <div id="insights" class="ins"></div>
+    </div>
     <div id="filters" class="filters" hidden></div>
     <div id="body"><div class="empty">Loading…</div></div>
   </div>
@@ -301,7 +350,7 @@
       if (deepId) openSession(deepId);
       loadLinkSent();
     } catch (e) {
-      $("kpis").hidden = true; $("filters").hidden = true;
+      $("kpis").hidden = true; $("filters").hidden = true; $("insightsWrap").hidden = true;
       $("stalledBanner").innerHTML = "";
       $("body").innerHTML = '<div class="err">Could not load sessions (' + esc(e.message) + '). Check the session function is deployed.</div>';
       $("count").textContent = ""; $("updated").textContent = "";
@@ -318,16 +367,19 @@
       .then(function (r) { return r.ok ? r.json() : { seeds: [] }; })
       .then(function (d) {
         var seeds = (d && d.seeds) || [];
-        var seen = {}, owners = {};
+        var seen = {}, meta = {};
         SESSIONS.forEach(function (s) { if (s.seedId) seen[s.seedId] = 1; });
-        seeds.forEach(function (x) { if (x && x.id && x.preparedBy) owners[x.id] = x.preparedBy; });
-        // Owner attribution: join the consultant who prepared the link onto each
-        // session by seedId. preparedBy lives only in the token-gated seed store,
-        // never on the client-facing session record, so we resolve it here.
-        SESSIONS.forEach(function (s) { if (s.seedId && owners[s.seedId]) s.owner = owners[s.seedId]; });
+        // Join the consultant (owner), package and chat language onto each session by
+        // seedId. All three live only in the token-gated seed store, never on the
+        // client-facing session record, so we resolve them here.
+        seeds.forEach(function (x) { if (x && x.id) meta[x.id] = { owner: x.preparedBy || "", pkg: x.package || "", lang: x.language || "" }; });
+        SESSIONS.forEach(function (s) {
+          var m = s.seedId && meta[s.seedId];
+          if (m) { if (m.owner) s.owner = m.owner; s.pkg = m.pkg; s.lang = m.lang; }
+        });
         LINKSENT = seeds.filter(function (x) { return x && x.id && !seen[x.id]; }).map(function (x) {
           return { id: x.id, company: x.company || "(unnamed)", contact: x.contactName || "", email: x.email || "",
-            owner: x.preparedBy || "",
+            owner: x.preparedBy || "", pkg: x.package || "", lang: x.language || "",
             topicCount: 0, channelCount: 0, userCount: 0, status: "link_sent", percent: 0,
             durationMs: null, apiCalls: null, tokens: null, sheetUrl: null, hasHandoff: false,
             seeded: true, seedId: x.id, lastActiveAt: x.savedAt || null, sentAt: null, savedAt: x.savedAt || null, _linkSent: true };
@@ -345,7 +397,18 @@
 
   var SESSIONS = [];
   var LINKSENT = []; // pseudo-rows: seeds (links) generated but never opened
-  var FILTER = { status: "all", minPct: 0, q: "", owner: "all", dateFrom: "", dateTo: "", sortKey: "lastActive", sortDir: "desc" };
+  var FILTER = { status: "all", minPct: 0, q: "", owner: "all", pkg: "all", lang: "all", dateFrom: "", dateTo: "", sortKey: "lastActive", sortDir: "desc" };
+  // Package code -> friendly label (product line + support tier), for the filter
+  // dropdown, the "by package" chart, and CSV. Codes come from the sales page.
+  var PKG_PRODUCT = { core: "Core", analyze: "Analyze/Research", business: "Business/Premium" };
+  var PKG_TIER = { plus: "Plus", advanced: "Advanced", elite: "Elite" };
+  function pkgLabel(code) {
+    if (!code) return "";
+    var p = String(code).split("-");
+    var prod = PKG_PRODUCT[p[0]] || p[0] || "";
+    var tier = PKG_TIER[p[1]] || p[1] || "";
+    return (prod && tier) ? (prod + " · " + tier) : (prod || tier || String(code));
+  }
   // Value a row sorts by for a given column key.
   function sortVal(s, key) {
     if (key === "company") return (s.company || "").toLowerCase();
@@ -406,13 +469,121 @@
     box.hidden = false;
   }
 
+  // ---- Insights charts. Recomputed from the current filtered list on every
+  // filter/search/sort change, so the charts always match the table. All rendering
+  // is inline HTML/CSS, no chart library. ----
+  function groupCounts(rows, keyFn) {
+    var map = {};
+    rows.forEach(function (s) {
+      var k = keyFn(s); if (!k) return;
+      if (!map[k]) map[k] = { total: 0, completed: 0 };
+      map[k].total++;
+      if (s.status === "completed") map[k].completed++;
+    });
+    return Object.keys(map).map(function (k) { return { key: k, total: map[k].total, completed: map[k].completed }; })
+      .sort(function (a, b) { return b.total - a.total; });
+  }
+  // Horizontal bars. items: [{label, value, sub}]. Widths scale to the largest value.
+  function barsHtml(items) {
+    if (!items.length) return '<div class="nodata">No data yet.</div>';
+    var m = Math.max.apply(null, items.map(function (i) { return i.value; })) || 1;
+    return items.map(function (i) {
+      var pct = Math.max(2, Math.min(100, Math.round(i.value / m * 100)));
+      return '<div class="barrow"><span class="lbl" title="' + esc(i.label) + '">' + esc(i.label) + '</span>' +
+        '<span class="bartrack"><span class="barfill" style="width:' + pct + '%"></span></span>' +
+        '<span class="barval">' + esc(String(i.value)) + (i.sub ? ' <small>' + esc(i.sub) + '</small>' : '') + '</span></div>';
+    }).join("");
+  }
+  function funnelHtml(linksSent, started, completed) {
+    var stages = [
+      { l: "Links sent", v: linksSent, c: "#8b5cf6" },
+      { l: "Started", v: started, c: "#6d28d9" },
+      { l: "Completed", v: completed, c: "#16a34a" }
+    ];
+    var top = linksSent || started || 1;
+    return stages.map(function (st, i) {
+      var pct = Math.max(2, Math.min(100, Math.round(st.v / top * 100)));
+      var conv = "";
+      if (i === 1 && linksSent) conv = Math.round(started / linksSent * 100) + "% of links opened";
+      if (i === 2 && started) conv = Math.round(completed / started * 100) + "% of started sessions finished";
+      return '<div class="fstage"><div class="fhead"><span>' + esc(st.l) + '</span><b>' + st.v + '</b></div>' +
+        '<div class="ftrack"><span class="ffill" style="width:' + pct + '%;background:' + st.c + '"></span></div>' +
+        (conv ? '<div class="conv">' + conv + '</div>' : '') + '</div>';
+    }).join("");
+  }
+  // Weekly completed counts, bucketed by the Monday of each session's week, most
+  // recent 10 weeks.
+  function weeklyCompletions(rows) {
+    var buckets = {};
+    rows.forEach(function (s) {
+      if (s._linkSent || s.status !== "completed") return;
+      var t = Date.parse(s.savedAt || s.sentAt || s.lastActiveAt || "");
+      if (!isFinite(t)) return;
+      var d = new Date(t), day = (d.getDay() + 6) % 7;
+      var mon = new Date(d.getFullYear(), d.getMonth(), d.getDate() - day);
+      var key = mon.getFullYear() + "-" + String(mon.getMonth() + 1).padStart(2, "0") + "-" + String(mon.getDate()).padStart(2, "0");
+      buckets[key] = (buckets[key] || 0) + 1;
+    });
+    var MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    return Object.keys(buckets).sort().slice(-10).map(function (k) {
+      var p = k.split("-");
+      return { label: MON[(+p[1]) - 1] + " " + (+p[2]), value: buckets[k] };
+    });
+  }
+  function sparkHtml(series) {
+    if (!series.length) return '<div class="nodata">No completed sessions yet.</div>';
+    var max = Math.max.apply(null, series.map(function (s) { return s.value; })) || 1;
+    return '<div class="spark">' + series.map(function (s) {
+      var pct = Math.max(3, Math.min(100, Math.round(s.value / max * 100)));
+      return '<div class="scol"><div class="cval">' + s.value + '</div>' +
+        '<div class="cbar" style="height:' + pct + '%"></div><div class="clbl">' + esc(s.label) + '</div></div>';
+    }).join("") + '</div>';
+  }
+  var _insSeen = false;
+  function renderInsights(list) {
+    var wrap = $("insightsWrap"), box = $("insights");
+    if (!wrap || !box) return;
+    var started = list.filter(function (s) { return !s._linkSent; });
+    var completedN = started.filter(function (s) { return s.status === "completed"; }).length;
+    var linksSentN = list.filter(function (s) { return s._linkSent; }).length + started.length;
+    function donePct(n, d) { return d ? Math.round(n / d * 100) + "% done" : ""; }
+    function toBars(groups, labelFn) {
+      return groups.slice(0, 8).map(function (g) { return { label: labelFn(g.key), value: g.total, sub: donePct(g.completed, g.total) }; });
+    }
+    var byRep = toBars(groupCounts(list, function (s) { return s.owner; }), function (k) { return k; });
+    var byPkg = toBars(groupCounts(list, function (s) { return s.pkg; }), pkgLabel);
+    var byLang = toBars(groupCounts(list, function (s) { return s.lang; }), function (k) { return k; });
+    box.innerHTML =
+      '<div class="chart"><h4>Onboarding funnel</h4>' + funnelHtml(linksSentN, started.length, completedN) + '</div>' +
+      '<div class="chart"><h4>Completed per week</h4>' + sparkHtml(weeklyCompletions(list)) + '</div>' +
+      '<div class="chart"><h4>By package</h4>' + barsHtml(byPkg) + '</div>' +
+      '<div class="chart"><h4>By chat language</h4>' + barsHtml(byLang) + '</div>' +
+      '<div class="chart wide"><h4>By consultant · links prepared &amp; completion rate</h4>' + barsHtml(byRep) + '</div>';
+    wrap.hidden = false;
+    // Play the grow-in animation only the first time the panel appears.
+    if (!_insSeen) {
+      _insSeen = true;
+      box.classList.add("appear");
+      setTimeout(function () { box.classList.remove("appear"); }, 900);
+    }
+  }
+
   function renderFilters() {
     var statusOpts = [["all", "All statuses"], ["completed", "Completed"], ["in_progress", "In progress"], ["stalled", "Stalled"], ["link_sent", "Link sent"]];
     var pctOpts = [["0", "Any progress"], ["25", "25% or more"], ["50", "50% or more"], ["75", "75% or more"], ["100", "100% progress"]];
-    var ownerMap = {};
-    SESSIONS.concat(LINKSENT).forEach(function (s) { if (s.owner) ownerMap[s.owner] = 1; });
+    var ownerMap = {}, pkgMap = {}, langMap = {};
+    SESSIONS.concat(LINKSENT).forEach(function (s) {
+      if (s.owner) ownerMap[s.owner] = 1;
+      if (s.pkg) pkgMap[s.pkg] = 1;
+      if (s.lang) langMap[s.lang] = 1;
+    });
     var ownerKeys = Object.keys(ownerMap).sort();
     var ownerOpts = [["all", "Anyone"]].concat(ownerKeys.map(function (o) { return [o, o]; }));
+    // Package options sorted by their friendly label; value stays the raw code.
+    var pkgKeys = Object.keys(pkgMap).sort(function (a, b) { return pkgLabel(a).localeCompare(pkgLabel(b)); });
+    var pkgOpts = [["all", "All packages"]].concat(pkgKeys.map(function (c) { return [c, pkgLabel(c)]; }));
+    var langKeys = Object.keys(langMap).sort();
+    var langOpts = [["all", "All languages"]].concat(langKeys.map(function (l) { return [l, l]; }));
     // esc() the option VALUE too — owner names are user-entered, unlike the fixed
     // status/progress literals. The browser hands back the unescaped value on change.
     function sel(id, label, opts, cur) {
@@ -425,6 +596,8 @@
       '<input id="fSearch" type="search" placeholder="Search client, contact, email, prepared by…" value="' + esc(FILTER.q) + '"/>' +
       sel("fStatus", "Status", statusOpts, FILTER.status) + sel("fPct", "Progress", pctOpts, FILTER.minPct) +
       (ownerKeys.length ? sel("fOwner", "Prepared by", ownerOpts, FILTER.owner) : "") +
+      (pkgKeys.length ? sel("fPkg", "Package", pkgOpts, FILTER.pkg) : "") +
+      (langKeys.length ? sel("fLang", "Language", langOpts, FILTER.lang) : "") +
       '<label>From <input id="fFrom" type="date" value="' + esc(FILTER.dateFrom) + '"/></label>' +
       '<label>To <input id="fTo" type="date" value="' + esc(FILTER.dateTo) + '"/></label>' +
       '<button type="button" id="fClear" class="fclear">Clear</button>' +
@@ -436,10 +609,12 @@
     $("fStatus").addEventListener("change", function (e) { FILTER.status = e.target.value; renderTable(); });
     $("fPct").addEventListener("change", function (e) { FILTER.minPct = parseInt(e.target.value, 10) || 0; renderTable(); });
     if (ownerKeys.length) $("fOwner").addEventListener("change", function (e) { FILTER.owner = e.target.value; renderTable(); });
+    if (pkgKeys.length) $("fPkg").addEventListener("change", function (e) { FILTER.pkg = e.target.value; renderTable(); });
+    if (langKeys.length) $("fLang").addEventListener("change", function (e) { FILTER.lang = e.target.value; renderTable(); });
     // Feature 4: date-range inputs. Empty means unbounded; the predicate treats "To" as end-of-day.
     $("fFrom").addEventListener("change", function (e) { FILTER.dateFrom = e.target.value; renderTable(); });
     $("fTo").addEventListener("change", function (e) { FILTER.dateTo = e.target.value; renderTable(); });
-    $("fClear").addEventListener("click", function () { FILTER = { status: "all", minPct: 0, q: "", owner: "all", dateFrom: "", dateTo: "", sortKey: "lastActive", sortDir: "desc" }; renderFilters(); renderTable(); });
+    $("fClear").addEventListener("click", function () { FILTER = { status: "all", minPct: 0, q: "", owner: "all", pkg: "all", lang: "all", dateFrom: "", dateTo: "", sortKey: "lastActive", sortDir: "desc" }; renderFilters(); renderTable(); });
     // Feature 3: export exactly the current filtered view.
     $("fExport").addEventListener("click", exportCsv);
   }
@@ -505,6 +680,11 @@
     // Refresh, or if the seed fetch fails (which would also hide the Owner dropdown,
     // leaving an invisible filter recoverable only via Clear).
     var ownersKnown = SESSIONS.concat(LINKSENT).some(function (s) { return s.owner; });
+    // Package/language are joined from the seed store on the same async pass as owner,
+    // so gate their filters the same way: don't apply until the data is actually known,
+    // or a Refresh with an active filter would blank the table until the join lands.
+    var pkgKnown = SESSIONS.concat(LINKSENT).some(function (s) { return s.pkg; });
+    var langKnown = SESSIONS.concat(LINKSENT).some(function (s) { return s.lang; });
     // Feature 4: date range. "To" is inclusive to end-of-day. Empty = unbounded.
     // Parse the yyyy-mm-dd inputs as LOCAL day boundaries (not Date.parse, which
     // reads a date-only string as UTC midnight). The table shows timestamps in
@@ -516,6 +696,8 @@
       if (FILTER.status !== "all" && displayStatus(s) !== FILTER.status) return false;
       if (FILTER.minPct > 0 && (s.percent != null ? s.percent : 0) < FILTER.minPct) return false;
       if (ownersKnown && FILTER.owner && FILTER.owner !== "all" && (s.owner || "") !== FILTER.owner) return false;
+      if (pkgKnown && FILTER.pkg && FILTER.pkg !== "all" && (s.pkg || "") !== FILTER.pkg) return false;
+      if (langKnown && FILTER.lang && FILTER.lang !== "all" && (s.lang || "") !== FILTER.lang) return false;
       if (isFinite(fromMs) || isFinite(toMs)) {
         var when = Date.parse(s.lastActiveAt || s.sentAt || s.savedAt || "");
         // A row with no parseable date can't fall inside a bounded range, so drop it.
@@ -523,7 +705,7 @@
         if (isFinite(toMs) && !(when <= toMs)) return false;
       }
       if (q) {
-        var hay = ((s.company || "") + " " + (s.contact || "") + " " + (s.email || "") + " " + (s.owner || "")).toLowerCase();
+        var hay = ((s.company || "") + " " + (s.contact || "") + " " + (s.email || "") + " " + (s.owner || "") + " " + pkgLabel(s.pkg) + " " + (s.lang || "")).toLowerCase();
         if (hay.indexOf(q) === -1) return false;
       }
       return true;
@@ -532,10 +714,11 @@
 
   function renderTable() {
     var list = getFilteredList();
-    // KPI cards sit above the filters and must agree with what's shown, so
-    // recompute them from the filtered list on every filter/search/sort change
-    // (renderKpis drops the link-sent pseudo-rows itself).
+    // KPI cards + insight charts sit above the filters and must agree with what's
+    // shown, so recompute them from the filtered list on every filter/search/sort
+    // change (renderKpis drops the link-sent pseudo-rows itself).
     renderKpis(list);
+    renderInsights(list);
     sortList(list);
     var arrow = FILTER.sortDir === "asc" ? " ▲" : " ▼";
     var head = '<table><thead><tr>' + COLS.map(function (c) {
@@ -583,7 +766,7 @@
   // uses, via getFilteredList) as a CSV, downloaded client-side via a Blob URL.
   function exportCsv() {
     var list = sortList(getFilteredList()); // match the on-screen sort order
-    var headers = ["Client", "Contact", "Email", "Status", "Progress %", "Topics", "Channels", "Users", "Time (min)", "Tokens", "Est cost", "Last active", "Prepared by", "Sheet URL"];
+    var headers = ["Client", "Contact", "Email", "Status", "Progress %", "Package", "Language", "Topics", "Channels", "Users", "Time (min)", "Tokens", "Est cost", "Last active", "Prepared by", "Sheet URL"];
     var lines = [headers.map(csvCell).join(",")];
     list.forEach(function (s) {
       var meta = STATUS_META[displayStatus(s)] || STATUS_META.in_progress;
@@ -595,6 +778,8 @@
         s.email || "",
         meta.l,
         s.percent != null ? num(s.percent) : 0,
+        pkgLabel(s.pkg),
+        s.lang || "",
         num(s.topicCount),
         num(s.channelCount),
         num(s.userCount),
@@ -646,7 +831,7 @@
     renderStalledBanner(); // Feature 5: recompute across all sessions on every reload
     $("count").textContent = sessions.length + (sessions.length === 1 ? " session" : " sessions");
     if (!sessions.length) {
-      $("kpis").hidden = true; $("filters").hidden = true;
+      $("kpis").hidden = true; $("filters").hidden = true; $("insightsWrap").hidden = true;
       $("body").innerHTML = '<div style="text-align:center;padding:56px 20px;color:var(--muted)">' +
         '<div style="font-size:34px;opacity:.5;margin-bottom:10px">📥</div>' +
         '<div style="font-size:15px;font-weight:700;color:var(--teal);margin-bottom:4px">No onboarding sessions yet</div>' +
@@ -818,6 +1003,19 @@
   $("modal").addEventListener("click", function (e) { if (e.target === $("modal")) closeModal(); });
   document.addEventListener("keydown", function (e) { if (e.key === "Escape" && $("modal").classList.contains("show")) closeModal(); });
   $("refresh").addEventListener("click", load);
+  $("insToggle").addEventListener("click", function () {
+    var hidden = $("insights").classList.toggle("hidden");
+    this.textContent = hidden ? "Show" : "Hide";
+    try { localStorage.setItem("dash_insights_hidden", hidden ? "1" : "0"); } catch (e) {}
+  });
+  // Restore the collapsed choice across reloads (defaults to shown). renderInsights
+  // never touches the .hidden class, so setting it once here sticks.
+  try {
+    if (localStorage.getItem("dash_insights_hidden") === "1") {
+      $("insights").classList.add("hidden");
+      $("insToggle").textContent = "Show";
+    }
+  } catch (e) {}
   load();
 </script>
 </body>

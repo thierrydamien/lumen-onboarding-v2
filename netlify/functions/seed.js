@@ -169,6 +169,7 @@ export default async (req) => {
         const safe = { id: r.id, savedAt: r.savedAt || null };
         for (const k of CLIENT_SAFE) if (r[k] != null) safe[k] = r[k];
         if (r.preparedBy != null) safe.preparedBy = r.preparedBy; // owner (dashboard only)
+        if (r.package != null) safe.package = r.package;           // package code (dashboard only)
         seeds.push(safe);
       }
       seeds.sort((a, b) => (b.savedAt || "").localeCompare(a.savedAt || ""));
