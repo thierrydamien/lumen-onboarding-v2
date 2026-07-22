@@ -171,7 +171,8 @@
       <select id="pkgProduct">
         <option value="">Select the product…</option>
         <option value="core">Lumen by Talkwalker: Core</option>
-        <option value="adv">Analyze / Research / Deep Research / Agency</option>
+        <option value="analyze">Lumen by TW: Analyze / Research / Deep Research / Agency</option>
+        <option value="business">Lumen by TW: Business / Premium</option>
       </select>
 
       <label style="margin-top:14px;">Service package <span class="opt">(required; scopes how much the assistant gathers, so it never asks the client)</span></label>
@@ -289,7 +290,8 @@
   // preview below; chat.js holds the authoritative limits the bot actually uses.
   var PKG_LIMITS = {
     "core-plus": { t: 5, c: 5, d: 1 }, "core-advanced": { t: 10, c: 10, d: 1 }, "core-elite": { t: 20, c: 20, d: 1 },
-    "adv-plus": { t: 15, c: 20, d: 1 }, "adv-advanced": { t: 20, c: 25, d: 2 }, "adv-elite": { t: 20, c: 25, d: 2 }
+    "analyze-plus": { t: 15, c: 20, d: 1 }, "analyze-advanced": { t: 20, c: 25, d: 2 }, "analyze-elite": { t: 20, c: 25, d: 2 },
+    "business-plus": { t: 20, c: 40, d: 3 }, "business-advanced": { t: 40, c: 60, d: 5 }, "business-elite": { t: 40, c: 60, d: 5 }
   };
   function pkgCode() { var p = $("pkgProduct").value, t = $("pkgTier").value; return (p && t) ? (p + "-" + t) : ""; }
   function updatePkgHint() {
@@ -370,7 +372,7 @@
     $("email").value = "jane@acmecorp.com";
     $("industry").value = "Consumer goods, footwear and apparel";
     $("notes").value = "Enterprise tier. Main interest is competitive intelligence; key competitor is Nike.";
-    $("pkgProduct").value = "adv"; $("pkgTier").value = "advanced";
+    $("pkgProduct").value = "analyze"; $("pkgTier").value = "advanced";
     $("out").classList.remove("show"); // programmatic fill doesn't fire input events, so clear any stale link here too
     $("company").classList.remove("invalid"); $("contactName").classList.remove("invalid"); $("preparedBy").classList.remove("invalid"); $("pkgProduct").classList.remove("invalid"); $("pkgTier").classList.remove("invalid");
     $("err_company").textContent = ""; $("err_contactName").textContent = ""; $("err_preparedBy").textContent = ""; $("err_email").textContent = ""; $("err_pkg").textContent = ""; $("formErr").textContent = "";

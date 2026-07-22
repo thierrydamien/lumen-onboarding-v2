@@ -99,14 +99,21 @@ function notesSystemBlock(notes) {
 // stored in the seed and resolved here SERVER-SIDE (like the notes) so the model
 // knows the real setup allowance and scopes how much it gathers, without ever asking
 // the client which package they bought. Limits come from the Proserv "Implementation
-// & Enablement Support" doc (tech set-up column). dra = combined Dashboard/Report/Alert.
+// & Enablement Support" doc (TECH SET UP column). dra = combined Dashboard/Report/Alert.
+// Two dimensions: the Lumen product line (core / analyze / business) x the support
+// package (plus / advanced / elite) = 9 combinations. NOTE: for the two "Lumen by TW"
+// product lines, Advanced and Elite carry the SAME tech-setup limits (they differ only
+// in enablement/training/ongoing support, not setup) — that matches the doc, not a typo.
 const PACKAGE_LIMITS = {
-  "core-plus":     { product: "Lumen by Talkwalker: Core", topics: 5,  channels: 5,  dra: 1 },
-  "core-advanced": { product: "Lumen by Talkwalker: Core", topics: 10, channels: 10, dra: 1 },
-  "core-elite":    { product: "Lumen by Talkwalker: Core", topics: 20, channels: 20, dra: 1 },
-  "adv-plus":      { product: "Lumen by TW: Analyze/Research/Deep Research/Agency", topics: 15, channels: 20, dra: 1 },
-  "adv-advanced":  { product: "Lumen by TW: Analyze/Research/Deep Research/Agency", topics: 20, channels: 25, dra: 2 },
-  "adv-elite":     { product: "Lumen by TW: Analyze/Research/Deep Research/Agency", topics: 20, channels: 25, dra: 2 },
+  "core-plus":         { product: "Lumen by Talkwalker: Core", topics: 5,  channels: 5,  dra: 1 },
+  "core-advanced":     { product: "Lumen by Talkwalker: Core", topics: 10, channels: 10, dra: 1 },
+  "core-elite":        { product: "Lumen by Talkwalker: Core", topics: 20, channels: 20, dra: 1 },
+  "analyze-plus":      { product: "Lumen by TW: Analyze, Research, Deep Research, Agency", topics: 15, channels: 20, dra: 1 },
+  "analyze-advanced":  { product: "Lumen by TW: Analyze, Research, Deep Research, Agency", topics: 20, channels: 25, dra: 2 },
+  "analyze-elite":     { product: "Lumen by TW: Analyze, Research, Deep Research, Agency", topics: 20, channels: 25, dra: 2 },
+  "business-plus":     { product: "Lumen by TW: Business, Premium", topics: 20, channels: 40, dra: 3 },
+  "business-advanced": { product: "Lumen by TW: Business, Premium", topics: 40, channels: 60, dra: 5 },
+  "business-elite":    { product: "Lumen by TW: Business, Premium", topics: 40, channels: 60, dra: 5 },
 };
 function packageSystemBlock(code) {
   const p = PACKAGE_LIMITS[code];
