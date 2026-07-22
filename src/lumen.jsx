@@ -1189,12 +1189,12 @@ function FN(key, lang) { const d = FN18N[lang] || FN18N.English; return (d[key] 
 
 // Composer attach (upload a supporting document at any point) strings, by language.
 const AT18N = {
-  English: { label:"Attach a document", trunc:"Only the first part was shared (large file).", failed:"I couldn't read that document in time. It may be long. Try a shorter section, or paste the key part into the chat." },
-  French:  { label:"Joindre un document", trunc:"Seule la première partie a été partagée (fichier volumineux).", failed:"Je n'ai pas pu lire ce document à temps. Il est peut-être long. Essayez une section plus courte, ou collez la partie essentielle dans le chat." },
-  German:  { label:"Dokument anhängen", trunc:"Nur der erste Teil wurde geteilt (große Datei).", failed:"Ich konnte dieses Dokument nicht rechtzeitig lesen. Es ist möglicherweise lang. Versuchen Sie einen kürzeren Abschnitt oder fügen Sie den wichtigsten Teil in den Chat ein." },
-  Spanish: { label:"Adjuntar un documento", trunc:"Solo se compartió la primera parte (archivo grande).", failed:"No pude leer ese documento a tiempo. Puede ser largo. Pruebe con una sección más corta o pegue la parte clave en el chat." },
-  Italian: { label:"Allega un documento", trunc:"È stata condivisa solo la prima parte (file grande).", failed:"Non sono riuscito a leggere il documento in tempo. Potrebbe essere lungo. Prova una sezione più breve o incolla la parte chiave nella chat." },
-  Arabic:  { label:"إرفاق مستند", trunc:"تمت مشاركة الجزء الأول فقط (ملف كبير).", failed:"لم أتمكن من قراءة هذا المستند في الوقت المناسب. قد يكون طويلاً. جرّب قسمًا أقصر، أو الصق الجزء الأساسي في المحادثة." },
+  English: { label:"Attach a document", trunc:"Only the first part was shared (large file).", failed:"I couldn't read that document in time. It may be long. Try a shorter section, or paste the key part into the chat.", pasteTooBig:"That's a lot of text to paste. Attach it as a file with the paperclip instead (.txt, .csv, .xlsx or .docx) and I'll read the whole thing." },
+  French:  { label:"Joindre un document", trunc:"Seule la première partie a été partagée (fichier volumineux).", failed:"Je n'ai pas pu lire ce document à temps. Il est peut-être long. Essayez une section plus courte, ou collez la partie essentielle dans le chat.", pasteTooBig:"Cela fait beaucoup de texte à coller. Joignez-le plutôt sous forme de fichier avec le trombone (.txt, .csv, .xlsx ou .docx) et je lirai l'ensemble." },
+  German:  { label:"Dokument anhängen", trunc:"Nur der erste Teil wurde geteilt (große Datei).", failed:"Ich konnte dieses Dokument nicht rechtzeitig lesen. Es ist möglicherweise lang. Versuchen Sie einen kürzeren Abschnitt oder fügen Sie den wichtigsten Teil in den Chat ein.", pasteTooBig:"Das ist viel Text zum Einfügen. Hängen Sie ihn stattdessen als Datei über die Büroklammer an (.txt, .csv, .xlsx oder .docx), dann lese ich das Ganze." },
+  Spanish: { label:"Adjuntar un documento", trunc:"Solo se compartió la primera parte (archivo grande).", failed:"No pude leer ese documento a tiempo. Puede ser largo. Pruebe con una sección más corta o pegue la parte clave en el chat.", pasteTooBig:"Es mucho texto para pegar. Adjúntelo como archivo con el clip (.txt, .csv, .xlsx o .docx) y lo leeré completo." },
+  Italian: { label:"Allega un documento", trunc:"È stata condivisa solo la prima parte (file grande).", failed:"Non sono riuscito a leggere il documento in tempo. Potrebbe essere lungo. Prova una sezione più breve o incolla la parte chiave nella chat.", pasteTooBig:"È molto testo da incollare. Allegalo invece come file con la graffetta (.txt, .csv, .xlsx o .docx) e lo leggerò tutto." },
+  Arabic:  { label:"إرفاق مستند", trunc:"تمت مشاركة الجزء الأول فقط (ملف كبير).", failed:"لم أتمكن من قراءة هذا المستند في الوقت المناسب. قد يكون طويلاً. جرّب قسمًا أقصر، أو الصق الجزء الأساسي في المحادثة.", pasteTooBig:"هذا نص كبير للصقه. أرفقه كملف باستخدام المشبك بدلاً من ذلك (‎.txt أو ‎.csv أو ‎.xlsx أو ‎.docx) وسأقرؤه بالكامل." },
 };
 function AT(key, lang) { const d = AT18N[lang] || AT18N.English; return (d[key] != null ? d[key] : AT18N.English[key]) || ""; }
 
@@ -1718,8 +1718,13 @@ function TopicCards({ suggestions, onConfirm, onSkip, lang }) {
 }
 
 // Query import limits: extracted file text lands in the API context on submit,
-// so cap it before one big agency export blows up the conversation.
-const Q_MAX_LINES = 200, Q_MAX_CHARS = 15000, Q_MAX_FILE_BYTES = 2 * 1024 * 1024;
+// so cap it before one big agency export blows up the conversation. Sized to the
+// server's 80k-char queries cap (session.js): a full old-tool export of hundreds
+// of Boolean queries now imports whole instead of being clipped to ~200 lines
+// (which is what truncated a real migration to a couple of queries). Migrated
+// queries are the client's verbatim reference for the consultant, so keep them
+// generously; the 80k server cap is the real backstop.
+const Q_MAX_LINES = 1000, Q_MAX_CHARS = 60000, Q_MAX_FILE_BYTES = 2 * 1024 * 1024;
 function capQueryText(t) {
   let lines = t.split("\n").map(l=>l.trim()).filter(Boolean);
   let truncated = false;
@@ -1734,13 +1739,14 @@ function capQueryText(t) {
 // works), inflate it with the browser-native DecompressionStream, and strip the
 // XML to plain text. Only .docx (the modern zip format), never legacy .doc.
 // Cap the decompressed XML we keep. This bounds BOTH a zip bomb (tiny file
-// inflating huge) AND main-thread work: the widget only ever keeps Q_MAX_CHARS
-// (~15k) of text, and even a heavily-formatted queries doc needs well under this
-// much XML to yield that, so 1MB is generous. On exceeding it we take a bounded
-// PREFIX (stop inflating, cancel the stream) rather than throw — a large-but-real
-// doc still imports its first chunk, and capQueryText truncates + flags it. This
-// keeps the regex pipeline off multi-MB strings that would freeze a low-end phone.
-const DOCX_MAX_XML = 1024 * 1024;
+// inflating huge) AND main-thread work. Downstream we keep up to Q_MAX_CHARS
+// (~60k) of text for the queries widget, or ATTACH_MAX_CHARS (~48k) for an
+// attached requirements doc; a .docx carries roughly 4-8x that in XML tags, so
+// 4MB is enough to yield a full multi-page doc's text without clipping it before
+// the char caps do. On exceeding it we take a bounded PREFIX (stop inflating,
+// cancel the stream) rather than throw — a very large doc still imports its first
+// chunk. Runs once per import, off the hot path, so 4MB through the regex is fine.
+const DOCX_MAX_XML = 4 * 1024 * 1024;
 async function inflateRawBounded(bytes, maxBytes) {
   const reader = new Response(bytes).body.pipeThrough(new DecompressionStream("deflate-raw")).getReader();
   const chunks = []; let total = 0;
@@ -1835,12 +1841,19 @@ async function extractFileText(file) {
 // A supporting document attached mid-conversation is sent as CONTEXT, not dumped
 // as a chat turn: the assistant is told to pre-fill + confirm, not regurgitate.
 // Cap sizing: what times a call out is OUTPUT length (capped at 2000 tokens in
-// chat.js since v73), not input — input tokens process orders of magnitude
-// faster. 12k chars ≈ 3-4k input tokens, negligible latency, and covers a full
-// multi-page requirements doc (the flagship hand-me-your-doc case) instead of
-// clipping it at 6k. Still bounded so one attach can't blow the 400k body cap
-// once it rides along in the 20-turn history window.
-const ATTACH_MAX_CHARS = 12000;
+// chat.js), not input — input tokens process orders of magnitude faster. A real
+// requirements doc (the flagship hand-me-your-doc case) runs 30-45k chars; 12k
+// clipped ~70% of one (the later sections: migrated queries, dashboard/alert
+// requests, use-case notes) and the model proceeded on a fraction. 48k ≈ 12-14k
+// input tokens (trivial for a 200k-context model, output still capped) and takes
+// a full multi-page doc whole. Still bounded so even a few attaches in the
+// 20-turn window stay well under the 400k body cap (chat.js/session.js).
+const ATTACH_MAX_CHARS = 48000;
+// A paste this large in the message box is a document, not a chat turn: past this
+// it would risk the 400k server body cap (a dead 413 loop), so we steer it to the
+// attach path instead, which extracts + caps the text properly. Sized around the
+// attach cap so anything bigger than what an attachment would even keep is redirected.
+const COMPOSER_MAX_CHARS = 40000;
 
 function QueriesWidget({ onSubmit, initialData, lang }) {
   const [text,setText] = useState(initialData==="__skip__"||!initialData?"":initialData);
@@ -2408,15 +2421,30 @@ function OnboardingApp({ seed, seedId, seedError, onBriefSent, onSeeProserv }) {
 
 
   const MAX_HIST_TURNS = 20;
+  // Keep the serialized request under the server's 400k body cap (chat.js), with
+  // headroom. Turn-count trimming alone isn't enough: a few large imported docs in
+  // the recent window can still blow the cap, which 413s every send and wedges the
+  // session. So after the turn window we also drop oldest messages until it fits.
+  const MAX_REQ_BODY = 350_000;
 
   const callAPI = useCallback(async (hist, sysExtra="") => {
-    const trimmed = hist.slice(-MAX_HIST_TURNS);
+    // seedId lets the server inject confidential consultant notes; maxTokens matches
+    // the server ceiling (server clamps anyway); see chat.js for the timeout math.
+    const mkBody = msgs => ({ messages: msgs, maxTokens: 2000, overstateFix: !!sysExtra, seedId: seedIdRef.current || undefined });
+    let trimmed = hist.slice(-MAX_HIST_TURNS);
+    // Size-trim: drop oldest turns until the body fits. The captured brief lives in
+    // cdata/wState (persisted separately), so this sheds only old conversational
+    // context, never captured data. Always keep at least the current (last) turn.
+    while (trimmed.length > 1 && JSON.stringify(mkBody(trimmed)).length > MAX_REQ_BODY) trimmed = trimmed.slice(1);
+    // The Messages API requires the first message to be a user turn; a suffix slice
+    // of an alternating history can begin on an assistant turn, so drop it if so.
+    if (trimmed.length > 1 && trimmed[0].role !== "user") trimmed = trimmed.slice(1);
     apiCountRef.current += 1;
     // The system prompt lives server-side in the chat function; the client only
     // flags whether the OVERSTATE correction pass is needed.
     const res = await fetchWithTimeout(CHAT_ENDPOINT, {
       method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({ messages:trimmed, maxTokens:2000, overstateFix: !!sysExtra, seedId: seedIdRef.current || undefined }) // seedId lets the server inject confidential consultant notes; maxTokens matches the server ceiling (server clamps anyway); see chat.js for the timeout math
+      body: JSON.stringify(mkBody(trimmed))
     }, 60000);
     if (!res.ok) throw new Error(`api_${res.status}`);
     const d = await res.json();
@@ -2790,10 +2818,15 @@ function OnboardingApp({ seed, seedId, seedError, onBriefSent, onSeeProserv }) {
     init();
     const txt = ov!==undefined ? ov.trim() : input.trim();
     if (!txt||loading||attaching||attachingRef.current||busyRef.current) return; // don't start a send while one is in flight or a file is being read (attachingRef is the synchronous check; `attaching` state lags)
+    // Oversize-paste guard: a huge paste would blow the server body cap and just
+    // 413 (a dead "resend" loop). Steer it to the attach path, which extracts and
+    // caps the text properly. Keep the text in the box so nothing is lost.
+    if (txt.length > COMPOSER_MAX_CHARS) { setAttachNote(AT("pasteTooBig", uiLang)); return; }
+    setAttachNote(null);
     setInput(""); if (taRef.current) taRef.current.style.height = "auto";
     setMessages(p=>[...p,{role:"user",content:txt,timestamp:gts(),raw:txt,isChip:!!chip,chipLabel:chip}]);
     await sendToAPI(txt);
-  }, [input, loading, attaching, sendToAPI, init]);
+  }, [input, loading, attaching, sendToAPI, init, uiLang]);
 
   // A client can attach a supporting document at ANY point (Mckensey's ask), not
   // just at the QUERIES step. The document is treated as CONTEXT, never dumped
