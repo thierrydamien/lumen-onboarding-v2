@@ -167,17 +167,22 @@
 
       <div class="sec">Internal — never shown to the client</div>
 
-      <label>Setup package <span class="opt">(required; scopes how much the assistant gathers, so it never asks the client)</span></label>
-      <select id="pkg">
-        <option value="">Select the client's package…</option>
-        <option value="core-plus">Lumen Core — Plus (5 topics · 5 channels · 1 report)</option>
-        <option value="core-advanced">Lumen Core — Advanced (10 topics · 10 channels · 1 report)</option>
-        <option value="core-elite">Lumen Core — Elite (20 topics · 20 channels · 1 report)</option>
-        <option value="adv-plus">Analyze / Research / Deep Research / Agency — Plus (15 topics · 20 channels · 1 report)</option>
-        <option value="adv-advanced">Analyze / Research / Deep Research / Agency — Advanced (20 topics · 25 channels · 2 reports)</option>
-        <option value="adv-elite">Analyze / Research / Deep Research / Agency — Elite (20 topics · 25 channels · 2 reports)</option>
+      <label>Product <span class="opt">(required)</span></label>
+      <select id="pkgProduct">
+        <option value="">Select the product…</option>
+        <option value="core">Lumen by Talkwalker: Core</option>
+        <option value="adv">Analyze / Research / Deep Research / Agency</option>
+      </select>
+
+      <label style="margin-top:14px;">Service package <span class="opt">(required; scopes how much the assistant gathers, so it never asks the client)</span></label>
+      <select id="pkgTier">
+        <option value="">Select the package…</option>
+        <option value="plus">Plus</option>
+        <option value="advanced">Advanced</option>
+        <option value="elite">Elite</option>
       </select>
       <div class="ferr" id="err_pkg"></div>
+      <div class="hint" id="pkgHint" style="margin-top:6px;"></div>
 
       <label style="margin-top:14px;">Prepared by <span class="opt">(required; remembered on this device)</span></label>
       <input id="preparedBy" placeholder="Your name"/>
@@ -279,8 +284,20 @@
     });
   }
 
+  // Package = product + service tier. Combined into the code chat.js expects
+  // (e.g. "core-advanced"). This little table is DISPLAY-ONLY, for the limits
+  // preview below; chat.js holds the authoritative limits the bot actually uses.
+  var PKG_LIMITS = {
+    "core-plus": { t: 5, c: 5, d: 1 }, "core-advanced": { t: 10, c: 10, d: 1 }, "core-elite": { t: 20, c: 20, d: 1 },
+    "adv-plus": { t: 15, c: 20, d: 1 }, "adv-advanced": { t: 20, c: 25, d: 2 }, "adv-elite": { t: 20, c: 25, d: 2 }
+  };
+  function pkgCode() { var p = $("pkgProduct").value, t = $("pkgTier").value; return (p && t) ? (p + "-" + t) : ""; }
+  function updatePkgHint() {
+    var l = PKG_LIMITS[pkgCode()];
+    $("pkgHint").textContent = l ? ("This package: up to " + l.t + " topics · " + l.c + " channels · " + l.d + " dashboard/report/alert" + (l.d > 1 ? "s" : "") + " · 1 language.") : "";
+  }
   function checkValid() {
-    var ok = !!($("company").value.trim() && $("contactName").value.trim() && $("preparedBy").value.trim() && $("pkg").value);
+    var ok = !!($("company").value.trim() && $("contactName").value.trim() && $("preparedBy").value.trim() && $("pkgProduct").value && $("pkgTier").value);
     $("gen").disabled = !ok;
     return ok;
   }
@@ -292,13 +309,17 @@
     var company = $("company").value.trim();
     var contactName = $("contactName").value.trim();
     var preparedBy = $("preparedBy").value.trim();
-    var pkg = $("pkg").value;
+    var pkg = pkgCode();
     // Inline validation, no alert(). Generate is disabled until all required fields
     // are present; this backstop also marks the offending field.
     if (!company) { $("company").classList.add("invalid"); $("err_company").textContent = "Company is required."; }
     if (!contactName) { $("contactName").classList.add("invalid"); $("err_contactName").textContent = "Contact name is required."; }
     if (!preparedBy) { $("preparedBy").classList.add("invalid"); $("err_preparedBy").textContent = "Your name is required. It tags the link for the onboarding team."; }
-    if (!pkg) { $("pkg").classList.add("invalid"); $("err_pkg").textContent = "Select the client's package so the assistant scopes the setup correctly."; }
+    if (!pkg) {
+      if (!$("pkgProduct").value) $("pkgProduct").classList.add("invalid");
+      if (!$("pkgTier").value) $("pkgTier").classList.add("invalid");
+      $("err_pkg").textContent = "Select the product and service package so the assistant scopes the setup correctly.";
+    }
     if (!company || !contactName || !preparedBy || !pkg) return;
     localStorage.setItem("sales_prepared_by", preparedBy); // remember on this device
     var seed = {
@@ -309,7 +330,7 @@
       notes: $("notes").value.trim(),
       language: $("language").value,
       preparedBy: preparedBy,
-      package: $("pkg").value
+      package: pkg
     };
     var btn = $("gen"), label = btn.textContent;
     btn.disabled = true; btn.textContent = "Generating…";
@@ -349,11 +370,11 @@
     $("email").value = "jane@acmecorp.com";
     $("industry").value = "Consumer goods, footwear and apparel";
     $("notes").value = "Enterprise tier. Main interest is competitive intelligence; key competitor is Nike.";
-    $("pkg").value = "adv-advanced";
+    $("pkgProduct").value = "adv"; $("pkgTier").value = "advanced";
     $("out").classList.remove("show"); // programmatic fill doesn't fire input events, so clear any stale link here too
-    $("company").classList.remove("invalid"); $("contactName").classList.remove("invalid"); $("preparedBy").classList.remove("invalid"); $("pkg").classList.remove("invalid");
+    $("company").classList.remove("invalid"); $("contactName").classList.remove("invalid"); $("preparedBy").classList.remove("invalid"); $("pkgProduct").classList.remove("invalid"); $("pkgTier").classList.remove("invalid");
     $("err_company").textContent = ""; $("err_contactName").textContent = ""; $("err_preparedBy").textContent = ""; $("err_email").textContent = ""; $("err_pkg").textContent = ""; $("formErr").textContent = "";
-    checkValid();
+    updatePkgHint(); checkValid();
   }
 
   // Copy affordance for the link. A failed copy must not look like a success:
@@ -475,7 +496,7 @@
 
   // Clear a stale link the moment the form is edited, so a consultant can never
   // copy a link that points to a different client's seed than what's on screen.
-  ["company", "contactName", "email", "industry", "notes", "language", "preparedBy", "pkg"].forEach(function (id) {
+  ["company", "contactName", "email", "industry", "notes", "language", "preparedBy", "pkgProduct", "pkgTier"].forEach(function (id) {
     var el = $(id);
     if (!el) return;
     el.addEventListener("input", function () { $("out").classList.remove("show"); });
@@ -490,10 +511,14 @@
       checkValid();
     });
   });
-  // pkg is a <select>, so listen on change; same clear-error + re-validate behaviour.
-  $("pkg").addEventListener("change", function () {
-    $("pkg").classList.remove("invalid"); $("err_pkg").textContent = ""; $("formErr").textContent = "";
-    checkValid();
+  // pkgProduct/pkgTier are <select>s: listen on change, clear the shared error,
+  // refresh the limits preview, and re-validate.
+  ["pkgProduct", "pkgTier"].forEach(function (id) {
+    $(id).addEventListener("change", function () {
+      $("pkgProduct").classList.remove("invalid"); $("pkgTier").classList.remove("invalid");
+      $("err_pkg").textContent = ""; $("formErr").textContent = "";
+      updatePkgHint(); checkValid();
+    });
   });
 
   // Soft, non-blocking email format check. Email is OPTIONAL, so this only warns:
