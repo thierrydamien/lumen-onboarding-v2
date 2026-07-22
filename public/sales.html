@@ -18,6 +18,7 @@
        text only. Design tokens match the T object in lumen.jsx by name. */
     --purple:#7C3AED; --purple-soft:#EDE7FB; --teal:#012B3A;
     --ink:#0f172a; --muted:#64748b; --border:#e6e8ee; --bg:#f6f5fb; --card:#fff;
+    --mint:#DFFFDE; --green:#2f7a35; --rose:#e11d48;
     --radius-sm:6px; --radius-md:10px; --radius-lg:16px;
     --shadow-modal:0 16px 48px rgba(0,0,0,.2);
   }
@@ -47,6 +48,9 @@
   .sec { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); margin:20px 0 8px; padding-bottom:7px; border-bottom:1px solid var(--border); }
   label { display:block; font-size:12px; font-weight:600; margin:12px 0 5px; color:var(--teal); }
   label .opt { font-weight:400; color:var(--muted); }
+  /* Required marker: a small filled pill so the fields that gate the link stand out
+     at a glance from the optional ones (which read as muted grey text). */
+  .req { display:inline-block; font-weight:700; font-size:9px; letter-spacing:.05em; text-transform:uppercase; color:#fff; background:var(--purple); border-radius:999px; padding:2px 7px; margin-left:3px; vertical-align:middle; }
   input, textarea, select { width:100%; border:1px solid var(--border); border-radius:9px; padding:10px 12px; font-size:13px; font-family:inherit; color:var(--ink); outline:none; background:#fff; }
   input:focus, textarea:focus, select:focus { border-color:var(--purple); box-shadow:0 0 0 3px rgba(124,58,237,.12); }
   textarea { resize:vertical; }
@@ -69,10 +73,12 @@
   .actions { margin-top:20px; display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
   .linklike { background:none; border:none; color:var(--muted); text-decoration:underline; font-size:12px; cursor:pointer; padding:0; font-weight:400; }
 
-  .invalid { border-color:var(--purple) !important; }
-  input.invalid { border-color:#e11d48 !important; }
-  .ferr { color:#e11d48; font-size:11px; margin-top:4px; min-height:0; }
-  .formerr { color:#e11d48; font-size:12.5px; margin-top:12px; min-height:16px; }
+  /* Error state (a required field left empty on Generate): a clear rose ring, kept
+     distinct from the purple "Required" marker so "must fill" and "you missed one"
+     never read as the same signal. */
+  .invalid { border-color:var(--rose) !important; box-shadow:0 0 0 3px rgba(225,29,72,.10) !important; }
+  .ferr { color:var(--rose); font-size:11px; margin-top:4px; min-height:0; }
+  .formerr { color:var(--rose); font-size:12.5px; margin-top:12px; min-height:16px; }
 
   /* Generated link: revealed below the button, no separate rail. */
   .out { margin-top:20px; border:1px solid var(--border); border-radius:12px; background:#f8fafb; max-height:0; opacity:0; overflow:hidden; padding:0 16px; transition:max-height .3s ease, opacity .3s ease, padding .3s ease; }
@@ -84,6 +90,13 @@
   .outactions { margin-top:10px; }
   .outactions .btn { padding:9px 16px; font-size:12.5px; }
   .hint { font-size:11px; color:var(--muted); line-height:1.5; }
+  /* Package allowance callout: the numbers that scope the whole conversation, so
+     give them a distinct mint panel that can't be skimmed past. Hidden until a
+     package is picked (:empty). Numbers are emphasised in updatePkgHint(). */
+  .pkghint { margin-top:10px; background:var(--mint); border:1px solid #bfe8bc; border-left:4px solid var(--green); border-radius:10px; padding:11px 14px; color:var(--teal); font-size:13px; line-height:1.55; }
+  .pkghint:empty { display:none; }
+  .pkghint .hl { display:block; font-size:9.5px; font-weight:800; text-transform:uppercase; letter-spacing:.06em; color:var(--green); margin-bottom:3px; }
+  .pkghint b { font-weight:800; }
   /* Soft, non-blocking duplicate-client heads-up. Amber, informational only. */
   .dupnote { color:#92400e; background:#fffbeb; border:1px solid #fde68a; border-radius:9px; padding:9px 11px; font-size:11.5px; line-height:1.5; margin-top:10px; }
 
@@ -125,21 +138,21 @@
 
     <div class="card">
       <h3>Client details</h3>
-      <p class="csub">Only Company and Contact are required. Everything else pre-fills the chat.</p>
+      <p class="csub">Fields marked <span class="req">Required</span> generate the link. Everything else pre-fills the client's chat.</p>
 
       <div class="sec">Client</div>
-      <label>Company <span class="opt">(required)</span></label>
+      <label>Company <span class="req">Required</span></label>
       <input id="company" placeholder="Acme Corp"/>
       <div class="ferr" id="err_company"></div>
 
       <div class="row">
         <div>
-          <label>Contact name <span class="opt">(required)</span></label>
+          <label>Contact name <span class="req">Required</span></label>
           <input id="contactName" placeholder="Jane Smith"/>
           <div class="ferr" id="err_contactName"></div>
         </div>
         <div>
-          <label>Contact email <span class="opt">(optional)</span></label>
+          <label>Contact email <span class="opt">Optional</span></label>
           <input id="email" placeholder="jane@acmecorp.com"/>
           <div class="ferr" id="err_email"></div>
         </div>
@@ -147,11 +160,11 @@
 
       <div class="row">
         <div>
-          <label>Industry <span class="opt">(optional)</span></label>
+          <label>Industry <span class="opt">Optional</span></label>
           <input id="industry" placeholder="Consumer goods"/>
         </div>
         <div>
-          <label>Chat language <span class="opt">(optional)</span></label>
+          <label>Chat language <span class="opt">Optional</span></label>
           <!-- Only languages the chat can actually render (UI_LANGS in src/lumen.jsx).
                Add a language to the chat's I18N/WI18N tables BEFORE adding it here. -->
           <select id="language">
@@ -167,7 +180,7 @@
 
       <div class="sec">Internal — never shown to the client</div>
 
-      <label>Product <span class="opt">(required)</span></label>
+      <label>Product <span class="req">Required</span></label>
       <select id="pkgProduct">
         <option value="">Select the product…</option>
         <option value="core">Lumen by Talkwalker: Core</option>
@@ -175,7 +188,7 @@
         <option value="business">Lumen by TW: Business / Premium</option>
       </select>
 
-      <label style="margin-top:14px;">Service package <span class="opt">(required; scopes how much the assistant gathers, so it never asks the client)</span></label>
+      <label style="margin-top:14px;">Service package <span class="req">Required</span> <span class="opt">· scopes how much the assistant gathers, so it never asks the client</span></label>
       <select id="pkgTier">
         <option value="">Select the package…</option>
         <option value="plus">Plus</option>
@@ -183,16 +196,16 @@
         <option value="elite">Elite</option>
       </select>
       <div class="ferr" id="err_pkg"></div>
-      <div class="hint" id="pkgHint" style="margin-top:6px;"></div>
+      <div class="pkghint" id="pkgHint"></div>
 
-      <label style="margin-top:14px;">Prepared by <span class="opt">(required; remembered on this device)</span></label>
+      <label style="margin-top:14px;">Prepared by <span class="req">Required</span> <span class="opt">· remembered on this device</span></label>
       <input id="preparedBy" placeholder="Your name"/>
       <div class="ferr" id="err_preparedBy"></div>
 
-      <label style="margin-top:14px;">Notes for the onboarding team <span class="opt">(optional)</span></label>
+      <label style="margin-top:14px;">Notes for the onboarding team <span class="opt">Optional</span></label>
       <div class="notewrap">
         <div class="cap">Shapes the assistant · never shown to the client</div>
-        <textarea id="notes" rows="3" placeholder="Tier, priorities, key competitors, anything the team should know going in."></textarea>
+        <textarea id="notes" rows="3" placeholder="Priorities, key competitors, anything the team should know going in."></textarea>
         <div class="chips">
           <button type="button" class="chip" data-add="Main use case: ">+ Main use case</button>
           <button type="button" class="chip" data-add="Key competitors: ">+ Key competitors</button>
@@ -296,7 +309,12 @@
   function pkgCode() { var p = $("pkgProduct").value, t = $("pkgTier").value; return (p && t) ? (p + "-" + t) : ""; }
   function updatePkgHint() {
     var l = PKG_LIMITS[pkgCode()];
-    $("pkgHint").textContent = l ? ("This package: up to " + l.t + " topics · " + l.c + " channels · " + l.d + " dashboard/report/alert" + (l.d > 1 ? "s" : "") + " · 1 language.") : "";
+    // Numbers come from our own numeric table (no user input), so this HTML is safe.
+    // Emphasise the counts and lead with a label so the allowance can't be skimmed past.
+    if (!l) { $("pkgHint").innerHTML = ""; return; }
+    var dra = "dashboard/report/alert" + (l.d > 1 ? "s" : "");
+    $("pkgHint").innerHTML = '<span class="hl">This package — assistant scopes the setup to</span>' +
+      'up to <b>' + l.t + '</b> topics · <b>' + l.c + '</b> channels · <b>' + l.d + '</b> ' + dra + ' · <b>1</b> language';
   }
   function checkValid() {
     var ok = !!($("company").value.trim() && $("contactName").value.trim() && $("preparedBy").value.trim() && $("pkgProduct").value && $("pkgTier").value);
@@ -371,7 +389,7 @@
     $("contactName").value = "Jane Smith";
     $("email").value = "jane@acmecorp.com";
     $("industry").value = "Consumer goods, footwear and apparel";
-    $("notes").value = "Enterprise tier. Main interest is competitive intelligence; key competitor is Nike.";
+    $("notes").value = "Main use case: competitive intelligence\nKey competitors: Nike, Adidas\nMigrating from: Brandwatch";
     $("pkgProduct").value = "analyze"; $("pkgTier").value = "advanced";
     $("out").classList.remove("show"); // programmatic fill doesn't fire input events, so clear any stale link here too
     $("company").classList.remove("invalid"); $("contactName").classList.remove("invalid"); $("preparedBy").classList.remove("invalid"); $("pkgProduct").classList.remove("invalid"); $("pkgTier").classList.remove("invalid");
