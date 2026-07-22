@@ -167,9 +167,9 @@
 
       <div class="sec">Internal — never shown to the client</div>
 
-      <label>Setup package <span class="opt">(optional; scopes how much the assistant gathers, so it never asks the client)</span></label>
+      <label>Setup package <span class="opt">(required; scopes how much the assistant gathers, so it never asks the client)</span></label>
       <select id="pkg">
-        <option value="">Not set — assistant gathers as usual</option>
+        <option value="">Select the client's package…</option>
         <option value="core-plus">Lumen Core — Plus (5 topics · 5 channels · 1 report)</option>
         <option value="core-advanced">Lumen Core — Advanced (10 topics · 10 channels · 1 report)</option>
         <option value="core-elite">Lumen Core — Elite (20 topics · 20 channels · 1 report)</option>
@@ -177,6 +177,7 @@
         <option value="adv-advanced">Analyze / Research / Deep Research / Agency — Advanced (20 topics · 25 channels · 2 reports)</option>
         <option value="adv-elite">Analyze / Research / Deep Research / Agency — Elite (20 topics · 25 channels · 2 reports)</option>
       </select>
+      <div class="ferr" id="err_pkg"></div>
 
       <label style="margin-top:14px;">Prepared by <span class="opt">(required; remembered on this device)</span></label>
       <input id="preparedBy" placeholder="Your name"/>
@@ -279,7 +280,7 @@
   }
 
   function checkValid() {
-    var ok = !!($("company").value.trim() && $("contactName").value.trim() && $("preparedBy").value.trim());
+    var ok = !!($("company").value.trim() && $("contactName").value.trim() && $("preparedBy").value.trim() && $("pkg").value);
     $("gen").disabled = !ok;
     return ok;
   }
@@ -291,12 +292,14 @@
     var company = $("company").value.trim();
     var contactName = $("contactName").value.trim();
     var preparedBy = $("preparedBy").value.trim();
-    // Inline validation, no alert(). Generate is disabled until all three are
-    // present; this backstop also marks the offending field.
+    var pkg = $("pkg").value;
+    // Inline validation, no alert(). Generate is disabled until all required fields
+    // are present; this backstop also marks the offending field.
     if (!company) { $("company").classList.add("invalid"); $("err_company").textContent = "Company is required."; }
     if (!contactName) { $("contactName").classList.add("invalid"); $("err_contactName").textContent = "Contact name is required."; }
     if (!preparedBy) { $("preparedBy").classList.add("invalid"); $("err_preparedBy").textContent = "Your name is required. It tags the link for the onboarding team."; }
-    if (!company || !contactName || !preparedBy) return;
+    if (!pkg) { $("pkg").classList.add("invalid"); $("err_pkg").textContent = "Select the client's package so the assistant scopes the setup correctly."; }
+    if (!company || !contactName || !preparedBy || !pkg) return;
     localStorage.setItem("sales_prepared_by", preparedBy); // remember on this device
     var seed = {
       company: company,
@@ -346,9 +349,10 @@
     $("email").value = "jane@acmecorp.com";
     $("industry").value = "Consumer goods, footwear and apparel";
     $("notes").value = "Enterprise tier. Main interest is competitive intelligence; key competitor is Nike.";
+    $("pkg").value = "adv-advanced";
     $("out").classList.remove("show"); // programmatic fill doesn't fire input events, so clear any stale link here too
-    $("company").classList.remove("invalid"); $("contactName").classList.remove("invalid"); $("preparedBy").classList.remove("invalid");
-    $("err_company").textContent = ""; $("err_contactName").textContent = ""; $("err_preparedBy").textContent = ""; $("err_email").textContent = ""; $("formErr").textContent = "";
+    $("company").classList.remove("invalid"); $("contactName").classList.remove("invalid"); $("preparedBy").classList.remove("invalid"); $("pkg").classList.remove("invalid");
+    $("err_company").textContent = ""; $("err_contactName").textContent = ""; $("err_preparedBy").textContent = ""; $("err_email").textContent = ""; $("err_pkg").textContent = ""; $("formErr").textContent = "";
     checkValid();
   }
 
@@ -485,6 +489,11 @@
       $(id).classList.remove("invalid"); $("err_" + id).textContent = ""; $("formErr").textContent = "";
       checkValid();
     });
+  });
+  // pkg is a <select>, so listen on change; same clear-error + re-validate behaviour.
+  $("pkg").addEventListener("change", function () {
+    $("pkg").classList.remove("invalid"); $("err_pkg").textContent = ""; $("formErr").textContent = "";
+    checkValid();
   });
 
   // Soft, non-blocking email format check. Email is OPTIONAL, so this only warns:
