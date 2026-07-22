@@ -97,6 +97,10 @@
   .pkghint:empty { display:none; }
   .pkghint .hl { display:block; font-size:9.5px; font-weight:800; text-transform:uppercase; letter-spacing:.06em; color:var(--green); margin-bottom:3px; }
   .pkghint b { font-weight:800; }
+  /* Partial state (only one of the two dropdowns picked): neutral grey, not the
+     green "allowance" look, so an incomplete choice never reads as a real limit. */
+  .pkghint.partial { background:var(--bg); border-color:var(--border); border-left-color:#cbd5e1; color:var(--muted); }
+  .pkghint.partial .hl { color:var(--muted); }
   /* Soft, non-blocking duplicate-client heads-up. Amber, informational only. */
   .dupnote { color:#92400e; background:#fffbeb; border:1px solid #fde68a; border-radius:9px; padding:9px 11px; font-size:11.5px; line-height:1.5; margin-top:10px; }
 
@@ -141,18 +145,18 @@
       <p class="csub">Fields marked <span class="req">Required</span> generate the link. Everything else pre-fills the client's chat.</p>
 
       <div class="sec">Client</div>
-      <label>Company <span class="req">Required</span></label>
+      <label for="company">Company <span class="req">Required</span></label>
       <input id="company" placeholder="Acme Corp"/>
       <div class="ferr" id="err_company"></div>
 
       <div class="row">
         <div>
-          <label>Contact name <span class="opt">Optional</span></label>
+          <label for="contactName">Contact name <span class="opt">Optional</span></label>
           <input id="contactName" placeholder="Jane Smith"/>
           <div class="ferr" id="err_contactName"></div>
         </div>
         <div>
-          <label>Contact email <span class="opt">Optional</span></label>
+          <label for="email">Contact email <span class="opt">Optional</span></label>
           <input id="email" placeholder="jane@acmecorp.com"/>
           <div class="ferr" id="err_email"></div>
         </div>
@@ -160,11 +164,11 @@
 
       <div class="row">
         <div>
-          <label>Industry <span class="opt">Optional</span></label>
+          <label for="industry">Industry <span class="opt">Optional</span></label>
           <input id="industry" placeholder="Consumer goods"/>
         </div>
         <div>
-          <label>Chat language <span class="opt">Optional</span></label>
+          <label for="language">Chat language <span class="opt">Optional</span></label>
           <!-- Only languages the chat can actually render (UI_LANGS in src/lumen.jsx).
                Add a language to the chat's I18N/WI18N tables BEFORE adding it here. -->
           <select id="language">
@@ -180,7 +184,7 @@
 
       <div class="sec">Internal — never shown to the client</div>
 
-      <label>Product <span class="req">Required</span></label>
+      <label for="pkgProduct">Product <span class="req">Required</span></label>
       <select id="pkgProduct">
         <option value="">Select the product…</option>
         <option value="core">Lumen by Talkwalker: Core</option>
@@ -188,7 +192,7 @@
         <option value="business">Lumen by TW: Business / Premium</option>
       </select>
 
-      <label style="margin-top:14px;">Service package <span class="req">Required</span> <span class="opt">· scopes how much the assistant gathers, so it never asks the client</span></label>
+      <label for="pkgTier" style="margin-top:14px;">Service package <span class="req">Required</span> <span class="opt">· scopes how much the assistant gathers, so it never asks the client</span></label>
       <select id="pkgTier">
         <option value="">Select the package…</option>
         <option value="plus">Plus</option>
@@ -198,11 +202,11 @@
       <div class="ferr" id="err_pkg"></div>
       <div class="pkghint" id="pkgHint"></div>
 
-      <label style="margin-top:14px;">Prepared by <span class="req">Required</span> <span class="opt">· remembered on this device</span></label>
+      <label for="preparedBy" style="margin-top:14px;">Prepared by <span class="req">Required</span> <span class="opt">· remembered on this device</span></label>
       <input id="preparedBy" placeholder="Your name"/>
       <div class="ferr" id="err_preparedBy"></div>
 
-      <label style="margin-top:14px;">Notes for the onboarding team <span class="opt">Optional</span></label>
+      <label for="notes" style="margin-top:14px;">Notes for the onboarding team <span class="opt">Optional</span></label>
       <div class="notewrap">
         <div class="cap">Shapes the assistant · never shown to the client</div>
         <textarea id="notes" rows="3" placeholder="Priorities, key competitors, anything the team should know going in."></textarea>
@@ -221,14 +225,16 @@
 
       <div class="out" id="out">
         <div class="done">✓ Link ready</div>
-        <label style="margin:0 0 5px;">Client link</label>
+        <label for="link" style="margin:0 0 5px;">Client link</label>
         <div class="linkbox">
           <input id="link" readonly/>
           <button class="btn" id="copy">Copy</button>
         </div>
         <div class="outactions">
           <button type="button" class="btn alt" id="emailBtn">Email to client</button>
+          <button type="button" class="linklike" id="againBtn" style="margin-left:14px;">+ Create another link</button>
         </div>
+        <div class="hint" id="noEmailNote" style="display:none;margin-top:8px;">No client email on file, so the draft opens with an empty To field for you to fill in.</div>
         <div class="dupnote" id="dupNote" style="display:none;"></div>
         <div class="hint" id="expiryNote" style="margin-top:10px;"></div>
         <div class="hint" style="margin-top:6px;">Your internal notes are never part of the link so they stay private to the team. The client just opens it to start their onboarding.</div>
@@ -308,13 +314,26 @@
   };
   function pkgCode() { var p = $("pkgProduct").value, t = $("pkgTier").value; return (p && t) ? (p + "-" + t) : ""; }
   function updatePkgHint() {
+    var el = $("pkgHint");
     var l = PKG_LIMITS[pkgCode()];
     // Numbers come from our own numeric table (no user input), so this HTML is safe.
     // Emphasise the counts and lead with a label so the allowance can't be skimmed past.
-    if (!l) { $("pkgHint").innerHTML = ""; return; }
-    var dra = "dashboard/report/alert" + (l.d > 1 ? "s" : "");
-    $("pkgHint").innerHTML = '<span class="hl">This package — assistant scopes the setup to</span>' +
-      'up to <b>' + l.t + '</b> topics · <b>' + l.c + '</b> channels · <b>' + l.d + '</b> ' + dra + ' · <b>1</b> language';
+    if (l) {
+      var dra = "dashboard/report/alert" + (l.d > 1 ? "s" : "");
+      el.classList.remove("partial");
+      el.innerHTML = '<span class="hl">This package — assistant scopes the setup to</span>' +
+        'up to <b>' + l.t + '</b> topics · <b>' + l.c + '</b> channels · <b>' + l.d + '</b> ' + dra + ' · <b>1</b> language';
+      return;
+    }
+    // Only one of the two dropdowns chosen: nudge to pick both, in neutral styling
+    // so an incomplete choice never looks like a real allowance.
+    if ($("pkgProduct").value || $("pkgTier").value) {
+      el.classList.add("partial");
+      el.innerHTML = '<span class="hl">Setup allowance</span>Pick both the product and the service package to see the allowance.';
+      return;
+    }
+    el.classList.remove("partial");
+    el.innerHTML = "";
   }
   function checkValid() {
     var ok = !!($("company").value.trim() && $("preparedBy").value.trim() && $("pkgProduct").value && $("pkgTier").value);
@@ -339,7 +358,12 @@
       if (!$("pkgTier").value) $("pkgTier").classList.add("invalid");
       $("err_pkg").textContent = "Select the product and service package so the assistant scopes the setup correctly.";
     }
-    if (!company || !preparedBy || !pkg) return;
+    if (!company || !preparedBy || !pkg) {
+      // Move focus (and scroll) to the first missing field so it's never off-screen.
+      var firstBad = !company ? "company" : (!$("pkgProduct").value ? "pkgProduct" : (!$("pkgTier").value ? "pkgTier" : "preparedBy"));
+      try { $(firstBad).focus(); $(firstBad).scrollIntoView({ block: "center", behavior: "smooth" }); } catch (e) {}
+      return;
+    }
     localStorage.setItem("sales_prepared_by", preparedBy); // remember on this device
     var seed = {
       company: company,
@@ -374,6 +398,7 @@
       $("link").value = CHAT_BASE + "?s=" + encodeURIComponent(data.id);
       setExpiryNote(data.expiresAt);
       setDupNote(company, data.duplicates);
+      $("noEmailNote").style.display = seed.email ? "none" : ""; // heads-up if the email draft will open with a blank To
       $("out").classList.add("show");
       setTimeout(function () { try { $("link").select(); } catch (e) {} }, 350); // auto-select after the reveal
     } catch (e) {
@@ -500,11 +525,36 @@
   $("example").addEventListener("click", fillExample);
   bindCopy("link", "copy");
 
+  // "Create another link": clear the client-specific fields so a rep can generate
+  // the next client's link without hand-deleting everything. Keeps the rep's name,
+  // product, package and language (usually the same across a batch).
+  function resetForNext() {
+    ["company", "contactName", "email", "industry", "notes"].forEach(function (id) {
+      var e = $(id); if (e) { e.value = ""; e.classList.remove("invalid"); }
+    });
+    ["err_company", "err_contactName", "err_email", "formErr"].forEach(function (id) { if ($(id)) $(id).textContent = ""; });
+    $("out").classList.remove("show");
+    checkValid();
+    try { $("company").focus(); $("company").scrollIntoView({ block: "center", behavior: "smooth" }); } catch (e) {}
+  }
+  $("againBtn").addEventListener("click", resetForNext);
+
+  // Enter in any single-line field generates the link (skips the multi-line notes
+  // textarea and the selects, where Enter has its own meaning). Guarded by checkValid,
+  // matching the button, so an incomplete form can't submit.
+  ["company", "contactName", "email", "industry", "preparedBy"].forEach(function (id) {
+    $(id).addEventListener("keydown", function (e) {
+      if (e.key === "Enter") { e.preventDefault(); if (checkValid()) generate(); }
+    });
+  });
+
   // Notes shortcut chips: append a labelled line to the notes field so reps fill
   // it in a consistent shape. Doesn't overwrite anything they've already typed.
   Array.prototype.forEach.call(document.querySelectorAll(".chip"), function (chip) {
     chip.addEventListener("click", function () {
       var t = $("notes"), add = chip.getAttribute("data-add");
+      // Don't append the same labelled line twice; if it's already there, just focus.
+      if (t.value.indexOf(add.trim()) !== -1) { t.focus(); return; }
       var cur = t.value.replace(/\s+$/, "");
       t.value = (cur ? cur + "\n" : "") + add;
       t.focus();
@@ -556,7 +606,11 @@
   // field they've already filled once.
   $("preparedBy").value = localStorage.getItem("sales_prepared_by") || "";
 
-  checkValid(); // Generate stays disabled until company, contact and "prepared by" are filled
+  checkValid(); // Generate stays disabled until company, product, service package and "prepared by" are filled
+
+  // Autofocus the first field so a rep can start typing immediately. Desktop only —
+  // on touch/narrow screens an autofocus pops the keyboard and hides the form.
+  try { if (window.matchMedia("(min-width:620px)").matches && !$("company").value) $("company").focus(); } catch (e) {}
 </script>
 </body>
 </html>
