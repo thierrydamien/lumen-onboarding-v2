@@ -110,7 +110,13 @@ const fmtRanked = d => { const n = normObjectives(d); return n.ranked.length ? n
 function seededOpener(sd, uiLang) {
   const langDirective = uiLang && uiLang !== "English" ? ` Please conduct the entire conversation in ${uiLang}.` : "";
   if (sd) {
-    return `[SEEDED SESSION] Prepared by the Lumen team. Company: ${sd.company}. Contact: ${sd.contactName}${sd.email?` (${sd.email})`:""}.${sd.industry?` Industry: ${sd.industry}.`:""}${sd.notes?` Consultant notes (do not read back to the client): ${sd.notes}.`:""} The client has just opened their link.${langDirective}`;
+    // Contact name is optional at seeding: include it only when present, otherwise
+    // fall back to just the email (if any). The system prompt tells the model to open
+    // with a general welcome, no name, when none is provided.
+    const contactPart = sd.contactName
+      ? ` Contact: ${sd.contactName}${sd.email?` (${sd.email})`:""}.`
+      : (sd.email ? ` Contact email: ${sd.email}.` : "");
+    return `[SEEDED SESSION] Prepared by the Lumen team. Company: ${sd.company}.${contactPart}${sd.industry?` Industry: ${sd.industry}.`:""}${sd.notes?` Consultant notes (do not read back to the client): ${sd.notes}.`:""} The client has just opened their link.${langDirective}`;
   }
   return `Hello, I'm ready to get started.${langDirective}`;
 }
@@ -3060,7 +3066,7 @@ input,textarea,select,button{font-family:inherit}
               <div aria-hidden="true" style={{position:"absolute",width:150,height:150,borderRadius:"50%",background:"radial-gradient(closest-side, rgba(126,72,236,.22), transparent)",animation:"haloPulse 4s ease-in-out infinite",pointerEvents:"none"}}/>
               <div style={{position:"relative",animation:"orbBreathe 5s ease-in-out infinite"}}><LumenMark size={72}/></div>
             </div>
-            <h1 style={{margin:"14px 0 8px",color:C.text,fontSize:26,fontWeight:700,animation:"slideUpFade .5s ease-out both",animationDelay:"60ms"}}>{seed?L("welcomeTitleSeeded",uiLang,{name:seed.contactName?.split(" ")[0]||seed.company}):L("welcomeTitle",uiLang)}</h1>
+            <h1 style={{margin:"14px 0 8px",color:C.text,fontSize:26,fontWeight:700,animation:"slideUpFade .5s ease-out both",animationDelay:"60ms"}}>{(seed&&seed.contactName)?L("welcomeTitleSeeded",uiLang,{name:seed.contactName.split(" ")[0]}):L("welcomeTitle",uiLang)}</h1>
             {seed && <div style={{display:"inline-flex",alignItems:"center",gap:6,margin:"0 0 12px",padding:"5px 13px",borderRadius:999,background:`${A}14`,color:LINK,fontSize:12,fontWeight:600,animation:"slideUpFade .5s ease-out both",animationDelay:"110ms"}}><span aria-hidden="true">✦</span>{L("preparedFor",uiLang,{company:seed.company})}</div>}
             <p style={{color:C.muted,fontSize:14,margin:"0 0 18px",maxWidth:420,lineHeight:1.6,animation:"slideUpFade .5s ease-out both",animationDelay:"150ms"}}>{seed?L("welcomeSubSeeded",uiLang,{company:seed.company}):L("welcomeSub",uiLang)}</p>
             {/* Prepared-link load failed (expired or store error). Copy is intentionally
@@ -3420,7 +3426,7 @@ function SalesStage({ onGenerated }) {
   const [copied,setCopied] = useState(false);
   const fillExample = () => { setCompany("Acme Corp"); setContactName("Jane Smith"); setEmail("jane@acmecorp.com"); setIndustry("Consumer goods — footwear and apparel"); setNotes("Enterprise tier. Main interest is competitive intelligence; key competitor is Nike."); };
   const generate = () => {
-    if (!company.trim() || !contactName.trim()) return;
+    if (!company.trim()) return;
     setLink({ url:`https://onboarding.hootsuite.com/?s=${crypto.randomUUID()}`, seed:{company:company.trim(),contactName:contactName.trim(),email:email.trim(),industry:industry.trim(),notes:notes.trim(),language} });
   };
   return (
@@ -3436,7 +3442,7 @@ function SalesStage({ onGenerated }) {
         </div>
 
         <Field label="Company" value={company} onChange={setCompany} placeholder="Acme Corp"/>
-        <Field label="Contact name" value={contactName} onChange={setContactName} placeholder="Jane Smith"/>
+        <Field label="Contact name" opt value={contactName} onChange={setContactName} placeholder="Jane Smith"/>
         <Field label="Contact email" opt value={email} onChange={setEmail} placeholder="jane@acmecorp.com"/>
         <Field label="Industry" opt value={industry} onChange={setIndustry} placeholder="Consumer goods — footwear and apparel"/>
         <div style={{marginBottom:16}}>
@@ -3448,7 +3454,7 @@ function SalesStage({ onGenerated }) {
         <Field label="What do you already know about this client?" opt area value={notes} onChange={setNotes} placeholder="Why they're buying, competitors they named, report audience, tier sold, language, anything sensitive — never shown to the client, quietly shapes the assistant's suggestions"/>
 
         <div style={{display:"flex",gap:10,alignItems:"center"}}>
-          <button onClick={generate} disabled={!company.trim()||!contactName.trim()} style={{background:company.trim()&&contactName.trim()?CHERRY:"#f0b5b3",color:"white",border:"none",borderRadius:8,padding:"12px 24px",fontSize:14,fontWeight:700,cursor:company.trim()&&contactName.trim()?"pointer":"default"}}>Generate link</button>
+          <button onClick={generate} disabled={!company.trim()} style={{background:company.trim()?CHERRY:"#f0b5b3",color:"white",border:"none",borderRadius:8,padding:"12px 24px",fontSize:14,fontWeight:700,cursor:company.trim()?"pointer":"default"}}>Generate link</button>
           <button onClick={fillExample} style={{background:"transparent",border:"none",color:"#5b6b76",fontSize:12,cursor:"pointer",textDecoration:"underline"}}>Use example client</button>
         </div>
 

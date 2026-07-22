@@ -147,7 +147,7 @@
 
       <div class="row">
         <div>
-          <label>Contact name <span class="req">Required</span></label>
+          <label>Contact name <span class="opt">Optional</span></label>
           <input id="contactName" placeholder="Jane Smith"/>
           <div class="ferr" id="err_contactName"></div>
         </div>
@@ -317,7 +317,7 @@
       'up to <b>' + l.t + '</b> topics · <b>' + l.c + '</b> channels · <b>' + l.d + '</b> ' + dra + ' · <b>1</b> language';
   }
   function checkValid() {
-    var ok = !!($("company").value.trim() && $("contactName").value.trim() && $("preparedBy").value.trim() && $("pkgProduct").value && $("pkgTier").value);
+    var ok = !!($("company").value.trim() && $("preparedBy").value.trim() && $("pkgProduct").value && $("pkgTier").value);
     $("gen").disabled = !ok;
     return ok;
   }
@@ -333,14 +333,13 @@
     // Inline validation, no alert(). Generate is disabled until all required fields
     // are present; this backstop also marks the offending field.
     if (!company) { $("company").classList.add("invalid"); $("err_company").textContent = "Company is required."; }
-    if (!contactName) { $("contactName").classList.add("invalid"); $("err_contactName").textContent = "Contact name is required."; }
     if (!preparedBy) { $("preparedBy").classList.add("invalid"); $("err_preparedBy").textContent = "Your name is required. It tags the link for the onboarding team."; }
     if (!pkg) {
       if (!$("pkgProduct").value) $("pkgProduct").classList.add("invalid");
       if (!$("pkgTier").value) $("pkgTier").classList.add("invalid");
       $("err_pkg").textContent = "Select the product and service package so the assistant scopes the setup correctly.";
     }
-    if (!company || !contactName || !preparedBy || !pkg) return;
+    if (!company || !preparedBy || !pkg) return;
     localStorage.setItem("sales_prepared_by", preparedBy); // remember on this device
     var seed = {
       company: company,

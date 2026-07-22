@@ -80,7 +80,7 @@ export default async (req) => {
 
     const seed = body && body.seed;
     if (!seed || typeof seed !== "object" || Array.isArray(seed)) return json(400, { error: "missing_seed" });
-    if (!seed.company || !seed.contactName) return json(400, { error: "company_and_contact_required" });
+    if (!seed.company) return json(400, { error: "company_required" });
 
     // Store only known string fields, each length-capped, so a tampered client
     // cannot stuff arbitrary or oversized data into the store.
