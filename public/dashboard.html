@@ -167,6 +167,13 @@
   .barfill { display:block; height:100%; background:linear-gradient(90deg,#6d28d9,#8b5cf6); border-radius:6px; min-width:3px; }
   .barval { width:78px; flex-shrink:0; text-align:right; font-variant-numeric:tabular-nums; color:var(--teal); font-weight:700; }
   .barval small { color:var(--muted); font-weight:600; }
+  /* Clickable breakdown rows (cross-filtering). */
+  .barrow-click { cursor:pointer; padding:3px 6px; margin-left:-6px; margin-right:-6px; border-radius:8px; outline:none; }
+  .barrow-click:hover { background:#f4f2fc; }
+  .barrow-click:focus-visible { box-shadow:0 0 0 2px rgba(124,58,237,.4); }
+  .barrow.active { background:#efeafe; }
+  .barrow.active .lbl { color:var(--purple); font-weight:700; }
+  .chint { font-weight:600; text-transform:none; letter-spacing:0; color:#a9b0bd; font-size:10px; margin-left:6px; }
   /* Funnel */
   .fstage { margin-bottom:13px; }
   .fhead { display:flex; justify-content:space-between; align-items:baseline; font-size:12px; color:var(--muted); margin-bottom:4px; }
@@ -484,12 +491,17 @@
       .sort(function (a, b) { return b.total - a.total; });
   }
   // Horizontal bars. items: [{label, value, sub}]. Widths scale to the largest value.
-  function barsHtml(items, denom) {
+  function barsHtml(items, opts) {
+    opts = opts || {};
     if (!items.length) return '<div class="nodata">No data yet.</div>';
-    var m = denom || Math.max.apply(null, items.map(function (i) { return i.value; })) || 1;
+    var m = opts.denom || Math.max.apply(null, items.map(function (i) { return i.value; })) || 1;
+    var fk = opts.filterKey; // when set, rows are clickable and set FILTER[fk]
     return items.map(function (i) {
       var pct = Math.max(2, Math.min(100, Math.round(i.value / m * 100)));
-      return '<div class="barrow"><span class="lbl" title="' + esc(i.label) + '">' + esc(i.label) + '</span>' +
+      var active = fk && String(FILTER[fk]) === String(i.key);
+      var attrs = fk ? ' data-fk="' + esc(fk) + '" data-fv="' + esc(String(i.key == null ? "" : i.key)) + '" role="button" tabindex="0" aria-pressed="' + (active ? "true" : "false") + '" title="Filter to ' + esc(i.label) + '"' : '';
+      return '<div class="barrow' + (fk ? ' barrow-click' : '') + (active ? ' active' : '') + '"' + attrs + '>' +
+        '<span class="lbl" title="' + esc(i.label) + '">' + esc(i.label) + '</span>' +
         '<span class="bartrack"><span class="barfill" style="width:' + pct + '%"></span></span>' +
         '<span class="barval">' + esc(String(i.value)) + (i.sub ? ' <small>' + esc(i.sub) + '</small>' : '') + '</span></div>';
     }).join("");
@@ -548,23 +560,26 @@
     var linksSentN = list.filter(function (s) { return s._linkSent; }).length + started.length;
     function donePct(n, d) { return d ? Math.round(n / d * 100) + "% done" : ""; }
     function toBars(groups, labelFn) {
-      return groups.slice(0, 8).map(function (g) { return { label: labelFn(g.key), value: g.total, sub: donePct(g.completed, g.total) }; });
+      return groups.slice(0, 8).map(function (g) { return { key: g.key, label: labelFn(g.key), value: g.total, sub: donePct(g.completed, g.total) }; });
     }
-    var byRep = toBars(groupCounts(list, function (s) { return s.owner; }), function (k) { return k; });
-    var byPkg = toBars(groupCounts(list, function (s) { return s.pkg; }), pkgLabel);
+    // Each categorical breakdown reflects every OTHER active filter but shows all of
+    // its own categories, so you can click across them (cross-filtering). The funnel
+    // and weekly trend use the fully-filtered `list`.
+    var byRep = toBars(groupCounts(getFilteredList("owner"), function (s) { return s.owner; }), function (k) { return k; });
+    var byPkg = toBars(groupCounts(getFilteredList("pkg"), function (s) { return s.pkg; }), pkgLabel);
     // Language: show each language's SHARE OF TOTAL (the language mix) rather than a
-    // per-language completion rate — that's the useful "who are our clients" read.
-    var langGroups = groupCounts(list, function (s) { return s.lang; });
+    // per-language completion rate — the useful "who are our clients" read.
+    var langGroups = groupCounts(getFilteredList("lang"), function (s) { return s.lang; });
     var langTotal = langGroups.reduce(function (a, g) { return a + g.total; }, 0);
     var byLang = langGroups.slice(0, 8).map(function (g) {
-      return { label: g.key, value: g.total, sub: langTotal ? Math.round(g.total / langTotal * 100) + "% of total" : "" };
+      return { key: g.key, label: g.key, value: g.total, sub: langTotal ? Math.round(g.total / langTotal * 100) + "% of total" : "" };
     });
     box.innerHTML =
       '<div class="chart"><h4>Onboarding funnel</h4>' + funnelHtml(linksSentN, started.length, completedN) + '</div>' +
       '<div class="chart"><h4>Completed per week</h4>' + sparkHtml(weeklyCompletions(list)) + '</div>' +
-      '<div class="chart"><h4>By package</h4>' + barsHtml(byPkg) + '</div>' +
-      '<div class="chart"><h4>By chat language</h4>' + barsHtml(byLang, langTotal) + '</div>' +
-      '<div class="chart wide"><h4>By consultant · links prepared &amp; completion rate</h4>' + barsHtml(byRep) + '</div>';
+      '<div class="chart"><h4>By package <span class="chint">click to filter</span></h4>' + barsHtml(byPkg, { filterKey: "pkg" }) + '</div>' +
+      '<div class="chart"><h4>By chat language <span class="chint">click to filter</span></h4>' + barsHtml(byLang, { denom: langTotal, filterKey: "lang" }) + '</div>' +
+      '<div class="chart wide"><h4>By consultant · links prepared &amp; completion rate <span class="chint">click to filter</span></h4>' + barsHtml(byRep, { filterKey: "owner" }) + '</div>';
     wrap.hidden = false;
     // Play the grow-in animation only the first time the panel appears.
     if (!_insSeen) {
@@ -678,7 +693,7 @@
       return (va - vb) * dir;
     });
   }
-  function getFilteredList() {
+  function getFilteredList(except) {
     var q = FILTER.q.trim().toLowerCase();
     // Owner data is joined onto sessions only after the seed fetch resolves
     // (loadLinkSent). Apply the owner filter ONLY when owners are actually known,
@@ -701,9 +716,9 @@
     return SESSIONS.concat(LINKSENT).filter(function (s) {
       if (FILTER.status !== "all" && displayStatus(s) !== FILTER.status) return false;
       if (FILTER.minPct > 0 && (s.percent != null ? s.percent : 0) < FILTER.minPct) return false;
-      if (ownersKnown && FILTER.owner && FILTER.owner !== "all" && (s.owner || "") !== FILTER.owner) return false;
-      if (pkgKnown && FILTER.pkg && FILTER.pkg !== "all" && (s.pkg || "") !== FILTER.pkg) return false;
-      if (langKnown && FILTER.lang && FILTER.lang !== "all" && (s.lang || "") !== FILTER.lang) return false;
+      if (except !== "owner" && ownersKnown && FILTER.owner && FILTER.owner !== "all" && (s.owner || "") !== FILTER.owner) return false;
+      if (except !== "pkg" && pkgKnown && FILTER.pkg && FILTER.pkg !== "all" && (s.pkg || "") !== FILTER.pkg) return false;
+      if (except !== "lang" && langKnown && FILTER.lang && FILTER.lang !== "all" && (s.lang || "") !== FILTER.lang) return false;
       if (isFinite(fromMs) || isFinite(toMs)) {
         var when = Date.parse(s.lastActiveAt || s.sentAt || s.savedAt || "");
         // A row with no parseable date can't fall inside a bounded range, so drop it.
@@ -1022,6 +1037,26 @@
       $("insToggle").textContent = "Show";
     }
   } catch (e) {}
+
+  // Click (or Enter/Space) a breakdown bar to filter the whole dashboard to that
+  // package / language / consultant; clicking the active one clears it. Delegated on
+  // #insights, which persists across chart re-renders.
+  function applyChartFilter(fk, fv) {
+    if (!fk) return;
+    FILTER[fk] = (String(FILTER[fk]) === String(fv)) ? "all" : fv;
+    renderFilters();
+    renderTable();
+  }
+  function chartRowFrom(e) { return (e.target && e.target.closest) ? e.target.closest(".barrow-click") : null; }
+  $("insights").addEventListener("click", function (e) {
+    var row = chartRowFrom(e);
+    if (row) applyChartFilter(row.getAttribute("data-fk"), row.getAttribute("data-fv"));
+  });
+  $("insights").addEventListener("keydown", function (e) {
+    if (e.key !== "Enter" && e.key !== " " && e.key !== "Spacebar") return;
+    var row = chartRowFrom(e);
+    if (row) { e.preventDefault(); applyChartFilter(row.getAttribute("data-fk"), row.getAttribute("data-fv")); }
+  });
   load();
 </script>
 </body>
