@@ -69,6 +69,7 @@
   .rep .hoff { color:var(--purple); font-weight:700; text-decoration:underline; font-size:12px; cursor:pointer; }
   tr.row:hover .rep .hoff { text-decoration:none; }
   .rep .none { color:var(--muted); }
+  .copylink { background:var(--purple-soft); color:var(--purple); border:none; border-radius:7px; padding:4px 10px; font-size:11px; font-weight:700; cursor:pointer; font-family:inherit; white-space:nowrap; }
   .note { font-size:11px; color:var(--muted); margin:14px 2px 0; line-height:1.5; }
   .filters { display:flex; gap:14px; align-items:center; margin-bottom:14px; flex-wrap:wrap; }
   .filters label { font-size:12px; color:var(--muted); display:flex; align-items:center; gap:6px; }
@@ -134,6 +135,9 @@
   /* Feature 5: amber "stalled sessions" banner above the KPIs. */
   .banner { display:flex; align-items:center; gap:12px; background:#FEF3E2; border:1px solid #F5D9A8; color:#92400e; border-radius:12px; padding:12px 16px; margin-bottom:16px; font-size:13px; line-height:1.4; }
   .banner button { margin-left:auto; flex-shrink:0; background:#92400e; color:#fff; border:none; border-radius:8px; padding:7px 13px; font-size:12px; font-weight:700; cursor:pointer; font-family:inherit; }
+  /* Info variant for the "new activity" nudge (distinct from the amber stalled banner). */
+  .banner.info { background:var(--purple-soft); border-color:#d9cbf7; color:var(--purple); }
+  .banner.info button { background:var(--purple); }
   /* Feature 6: small "Copy handoff" action in the handoff section header. */
   .copybtn { float:right; background:var(--purple-soft); color:var(--purple); border:none; border-radius:8px; padding:3px 10px; font-size:10.5px; font-weight:700; cursor:pointer; font-family:inherit; text-transform:none; letter-spacing:normal; }
 
@@ -217,6 +221,7 @@
   <div class="wrap">
     <h1>Client onboarding sessions</h1>
     <div id="stalledBanner"></div>
+    <div id="updateBanner"></div>
     <div id="kpis" class="kpis" hidden></div>
     <div id="insightsWrap" hidden>
       <div class="inshead"><h2>Insights</h2><button type="button" id="insToggle" class="instoggle">Hide</button></div>
@@ -298,6 +303,8 @@
     u = String(u == null ? "" : u).trim();
     return /^https?:\/\//i.test(u) ? u : "";
   }
+  // The client onboarding link for a seed, same shape the sales page generates.
+  function clientLink(seedId) { return location.origin + "/chat?s=" + encodeURIComponent(seedId); }
   // Per-MTok rates for the model the proxy runs (claude-sonnet-4-x class):
   // input $3, output $15, cache write $3.75, cache read $0.30. Estimate only.
   var RATES = { input: 3, output: 15, cacheWrite: 3.75, cacheRead: 0.30 };
@@ -339,8 +346,49 @@
     return a.length % 2 ? a[mid] : (a[mid - 1] + a[mid]) / 2;
   }
 
+  // ---- Background "new activity" nudge ----
+  var _loading = false, _snapIds = {}, _snapNewest = "";
+  var UPDATE_POLL_MS = 90000;
+  // Baseline the loaded set so the poll can tell what's new/updated since.
+  function snapshotSessions(sessions) {
+    _snapIds = {}; _snapNewest = "";
+    sessions.forEach(function (s) {
+      _snapIds[s.id] = 1;
+      var t = s.lastActiveAt || s.sentAt || s.savedAt || "";
+      if (t > _snapNewest) _snapNewest = t;
+    });
+  }
+  // Poll the session list in the background; if it differs from what's loaded, show a
+  // non-disruptive banner (never auto-replaces the view, so an open filter/sort/modal
+  // is safe). Swallows errors and does NOT trigger the token gate, so a background 401
+  // stays silent until the next manual action.
+  function pollUpdates() {
+    if (_loading || !getToken()) return;
+    fetch(SESSION_ENDPOINT, { headers: { "x-dashboard-token": getToken() } })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) {
+        if (!d || !Array.isArray(d.sessions)) return;
+        var newCount = 0, newest = "";
+        d.sessions.forEach(function (s) {
+          if (!_snapIds[s.id]) newCount++;
+          var t = s.lastActiveAt || s.sentAt || s.savedAt || "";
+          if (t > newest) newest = t;
+        });
+        var el = $("updateBanner"); if (!el) return;
+        if (newCount > 0 || (newest && newest > _snapNewest)) {
+          var msg = newCount > 0
+            ? (newCount + (newCount === 1 ? " new session" : " new sessions") + " since you last loaded.")
+            : "Sessions updated since you last loaded.";
+          el.innerHTML = '<div class="banner info"><span>' + esc(msg) + '</span><button type="button" id="updRefresh">Refresh</button></div>';
+          $("updRefresh").addEventListener("click", load);
+        } else { el.innerHTML = ""; }
+      })
+      .catch(function () {});
+  }
+
   async function load() {
     if (!getToken()) { await requestToken(); }
+    _loading = true;
     var btn = $("refresh"), lbl = btn.textContent;
     btn.disabled = true; btn.textContent = "Refreshing…";
     $("body").innerHTML = '<div class="empty">Loading…</div>';
@@ -362,7 +410,7 @@
       $("body").innerHTML = '<div class="err">Could not load sessions (' + esc(e.message) + '). Check the session function is deployed.</div>';
       $("count").textContent = ""; $("updated").textContent = "";
     } finally {
-      btn.disabled = false; btn.textContent = lbl;
+      _loading = false; btn.disabled = false; btn.textContent = lbl;
     }
   }
 
@@ -644,9 +692,16 @@
     var ds = displayStatus(s), meta = STATUS_META[ds] || STATUS_META.in_progress;
     var pct = num(s.percent); // coerce: the session record is client-POSTed, so an un-numeric percent must not reach innerHTML (XSS)
     var url = safeUrl(s.sheetUrl);
+    var dash = '<span class="none">—</span>';
     var rep = url
       ? '<a href="' + esc(url) + '" target="_blank" rel="noopener noreferrer" data-link="1">Open Sheet ⤓</a>' + (s.hasHandoff ? '<div class="ho">+ handoff</div>' : "")
-      : (s.hasHandoff ? '<span class="hoff">View handoff →</span>' : '<span class="none">—</span>');
+      : (s.hasHandoff ? '<span class="hoff">View handoff →</span>' : dash);
+    // Re-send affordance: a never-opened link or a stalled session gets a one-click
+    // copy of the client link (origin/chat?s=<seedId>) so the consultant can chase it.
+    if ((ds === "link_sent" || ds === "stalled") && s.seedId) {
+      var cbtn = '<button type="button" class="copylink" data-link="1" data-copy="' + esc(clientLink(s.seedId)) + '">Copy link</button>';
+      rep = (rep === dash) ? cbtn : rep + ' ' + cbtn;
+    }
     var tok = totalTokens(s.tokens);
     return '<tr class="row"' + (s._linkSent ? ' data-noopen="1"' : '') + ' data-id="' + esc(s.id) + '">' +
       '<td><strong>' + esc(s.company) + '</strong>' + (s.seeded && !s._linkSent ? '<span class="chip">seeded</span>' : "") +
@@ -766,8 +821,15 @@
     Array.prototype.forEach.call(document.querySelectorAll("tr.row"), function (tr) {
       tr.addEventListener("click", function (e) {
         if (tr.getAttribute("data-noopen")) return; // link-sent rows have no session detail yet
-        if (e.target.closest && e.target.closest('a[data-link]')) return; // let the Sheet link open on its own
+        if (e.target.closest && e.target.closest('[data-link]')) return; // let the Sheet link / Copy-link button handle their own click
         openSession(tr.getAttribute("data-id"));
+      });
+    });
+    // Copy-link buttons on link-sent / stalled rows: copy the client link to re-send.
+    Array.prototype.forEach.call(document.querySelectorAll(".copylink"), function (b) {
+      b.addEventListener("click", function (e) {
+        e.stopPropagation();
+        copyText(b.getAttribute("data-copy"), b, "Copy link");
       });
     });
   }
@@ -849,6 +911,8 @@
 
   function render(sessions) {
     SESSIONS = sessions;
+    snapshotSessions(sessions);            // baseline for the background "new activity" nudge
+    var ub = $("updateBanner"); if (ub) ub.innerHTML = ""; // just loaded, so we're current
     renderStalledBanner(); // Feature 5: recompute across all sessions on every reload
     $("count").textContent = sessions.length + (sessions.length === 1 ? " session" : " sessions");
     if (!sessions.length) {
@@ -1058,6 +1122,7 @@
     if (row) { e.preventDefault(); applyChartFilter(row.getAttribute("data-fk"), row.getAttribute("data-fv")); }
   });
   load();
+  setInterval(pollUpdates, UPDATE_POLL_MS); // background check for new activity
 </script>
 </body>
 </html>
