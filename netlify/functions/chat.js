@@ -177,6 +177,42 @@ function leaksNotes(replyText, notes) {
 
 export const config = { path: "/.netlify/functions/chat" };
 
+// ── Abuse / cost guard for this public, key-backed proxy ──────────────────────
+// A per-IP request cap: GENEROUS for a real (seeded) client and tighter for
+// anonymous traffic, so a leaked link or a script can't run up the Anthropic bill
+// or use the endpoint as a free relay. Fixed-window counters in Blobs. The check
+// FAILS OPEN on any storage error, so a client is never blocked by infrastructure.
+const RL_STORE = "lumen-ratelimit";
+const RL_SEEDED = { perMin: 60, perHour: 1000 }; // real clients: unreachable in normal use
+const RL_ANON   = { perMin: 30, perHour: 200 };  // anonymous: still ample for legit use
+const RL_SEED_RE = /^sd_[A-Za-z0-9-]{1,64}$/;
+function clientIp(req) {
+  return req.headers.get("x-nf-client-connection-ip")
+    || (req.headers.get("x-forwarded-for") || "").split(",")[0].trim()
+    || "unknown";
+}
+async function rateLimit(ip, seeded) {
+  const lim = seeded ? RL_SEEDED : RL_ANON;
+  const now = Date.now();
+  let store;
+  try { store = getStore(RL_STORE); } catch { return { ok: true }; }        // fail open
+  const key = (seeded ? "s:" : "a:") + ip;
+  let rec;
+  try { rec = await store.get(key, { type: "json" }); } catch { return { ok: true }; }
+  rec = rec || { mStart: now, mCount: 0, hStart: now, hCount: 0 };
+  if (now - rec.mStart >= 60000)   { rec.mStart = now; rec.mCount = 0; }     // minute window rolled
+  if (now - rec.hStart >= 3600000) { rec.hStart = now; rec.hCount = 0; }     // hour window rolled
+  rec.mCount++; rec.hCount++;
+  const overMin = rec.mCount > lim.perMin, overHour = rec.hCount > lim.perHour;
+  try { await store.setJSON(key, rec); } catch { /* best effort; a lost write just resets a bucket */ }
+  if (overMin || overHour) {
+    const secs = overHour ? Math.ceil((rec.hStart + 3600000 - now) / 1000)
+                          : Math.ceil((rec.mStart + 60000 - now) / 1000);
+    return { ok: false, retryAfter: Math.max(1, secs) };
+  }
+  return { ok: true };
+}
+
 export default async (req) => {
   if (req.method !== "POST") return json(405, { error: "method_not_allowed" });
 
@@ -216,6 +252,17 @@ export default async (req) => {
   if (messages.length > MAX_MESSAGES) return json(400, { error: "too_many_messages" });
   if (!messages.every(m => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string" && m.content.length > 0)) {
     return json(400, { error: "bad_message_shape" });
+  }
+
+  // Abuse/cost guard (see rateLimit): per-IP, generous for a seeded client and
+  // tighter for anonymous traffic. Runs before the model call; fails open on error,
+  // and a real client should never reach the ceiling.
+  const seeded = typeof seedId === "string" && RL_SEED_RE.test(seedId);
+  const rl = await rateLimit(clientIp(req), seeded);
+  if (!rl.ok) {
+    if (seeded) console.warn("Rate limit tripped by a seeded session — consider raising the limit");
+    return new Response(JSON.stringify({ error: "rate_limited", retryAfter: rl.retryAfter }),
+      { status: 429, headers: { "Content-Type": "application/json", "Retry-After": String(rl.retryAfter) } });
   }
 
   const requested = Number(maxTokens) || MAX_TOKENS_CEILING;

@@ -2448,10 +2448,18 @@ function OnboardingApp({ seed, seedId, seedError, onBriefSent, onSeeProserv }) {
     apiCountRef.current += 1;
     // The system prompt lives server-side in the chat function; the client only
     // flags whether the OVERSTATE correction pass is needed.
-    const res = await fetchWithTimeout(CHAT_ENDPOINT, {
-      method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify(mkBody(trimmed))
-    }, 60000);
+    const reqInit = { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(mkBody(trimmed)) };
+    let res = await fetchWithTimeout(CHAT_ENDPOINT, reqInit, 60000);
+    // Rate limited (429): the server's abuse guard tripped — which a real client
+    // should never hit. Treat it as a brief hiccup, not an error: wait the short
+    // window (capped so we never hang on a long one) and retry once transparently,
+    // so the client just sees the spinner a moment longer and continues.
+    if (res.status === 429) {
+      let ra = parseInt(res.headers.get("Retry-After") || "5", 10);
+      if (!Number.isFinite(ra) || ra < 1) ra = 5;
+      await sleep(Math.min(ra, 8) * 1000);
+      res = await fetchWithTimeout(CHAT_ENDPOINT, reqInit, 60000);
+    }
     if (!res.ok) throw new Error(`api_${res.status}`);
     const d = await res.json();
     if (d.error) throw new Error("api_error");
