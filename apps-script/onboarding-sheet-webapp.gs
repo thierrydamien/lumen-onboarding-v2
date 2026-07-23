@@ -12,9 +12,10 @@
  *        SHARED_SECRET   = <a long random string>   (same value in Netlify APPS_SCRIPT_SECRET)
  *        SLACK_BOT_TOKEN = <your xoxb- token>        (optional; enables the completion alert)
  *        SLACK_CHANNEL   = <channel id>              (optional; defaults below)
- *        DASHBOARD_URL   = https://<site>/dashboard  (optional; adds a "View full
- *                          session" deep-link to the Slack alert, e.g.
- *                          https://onboarding.hootsuite.com/dashboard)
+ *        DASHBOARD_URL   = https://<site>            (optional; adds a "View full
+ *                          session" deep-link to the Slack alert. Either the site
+ *                          root or the .../dashboard path works — the code derives
+ *                          the origin and always links to the /dashboard page.)
  *      Optional — IC/TAM @mentions in a threaded reply (reused from the survey
  *      script). Kept in Script Properties, NOT in this file, so the staff roster
  *      never lives in the repo:
@@ -654,9 +655,14 @@ function postCompletionSlack_(body, company, url) {
   // brief + handoff + notes). Needs the DASHBOARD_URL Script Property and the
   // sessionId the client passes through; omitted if either is missing. The
   // dashboard is token-gated, so the link opens but still asks for the token.
+  // Build the link from the ORIGIN of DASHBOARD_URL and always point at the
+  // /dashboard page. This way a DASHBOARD_URL set to the bare site root (a common
+  // mistake — it made this link 404 at /?id=...) OR to the full /dashboard path both
+  // resolve correctly, since the dashboard is served at /dashboard (see netlify.toml).
   const dashUrl = props.getProperty("DASHBOARD_URL");
-  const sessionLink = (dashUrl && body.sessionId)
-    ? dashUrl + (dashUrl.indexOf("?") === -1 ? "?" : "&") + "id=" + encodeURIComponent(body.sessionId)
+  const dashOrigin = dashUrl ? (String(dashUrl).match(/^https?:\/\/[^\/]+/) || [])[0] : "";
+  const sessionLink = (dashOrigin && body.sessionId)
+    ? dashOrigin + "/dashboard?id=" + encodeURIComponent(body.sessionId)
     : "";
   const links = [];
   if (url) links.push("<" + url + "|:page_facing_up: Open the requirements document>");
