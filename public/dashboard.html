@@ -83,6 +83,14 @@
   th.sortable:hover { color:var(--purple); }
   th.sortable .sorthint { opacity:.5; font-size:10px; }
   .fclear { background:transparent; border:1px solid var(--border); border-radius:9px; padding:7px 13px; font-size:12px; cursor:pointer; font-family:inherit; color:var(--muted); }
+  /* Active-filter chips: a visible, individually-removable summary of what's filtering. */
+  #activeFilters { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:-4px 2px 16px; }
+  #activeFilters:empty { display:none; }
+  .aflabel { font-size:11px; color:var(--muted); font-weight:700; text-transform:uppercase; letter-spacing:.04em; }
+  .afchip { background:var(--purple-soft); color:var(--purple); border:none; border-radius:999px; padding:5px 12px; font-size:12px; font-weight:600; cursor:pointer; font-family:inherit; }
+  .afchip span { font-weight:700; margin-left:5px; }
+  .afchip:hover { background:#e3d9fb; }
+  .afclear { background:transparent; border:none; color:var(--muted); text-decoration:underline; font-size:12px; cursor:pointer; font-family:inherit; padding:5px 4px; }
   .pill.inprog { background:#E8F1FE; color:#1d4ed8; }
   .pill.stalled { background:#FEF3E2; color:#92400e; }
   .pill.linksent { background:#eef1f5; color:#5b6b76; }
@@ -228,6 +236,7 @@
       <div id="insights" class="ins"></div>
     </div>
     <div id="filters" class="filters" hidden></div>
+    <div id="activeFilters"></div>
     <div id="body"><div class="empty">Loading…</div></div>
   </div>
 
@@ -788,6 +797,32 @@
     });
   }
 
+  // Active-filter chips: a labelled, individually-removable summary of everything
+  // currently filtering, so removing one filter (e.g. a language set by clicking a
+  // chart bar) is one obvious click rather than "re-click the highlighted bar".
+  function renderActiveFilters() {
+    var el = $("activeFilters"); if (!el) return;
+    var chips = [];
+    if (FILTER.status !== "all") chips.push(["status", "Status: " + ((STATUS_META[FILTER.status] || {}).l || FILTER.status)]);
+    if (FILTER.minPct > 0) chips.push(["minPct", "Progress: ≥" + FILTER.minPct + "%"]);
+    if (FILTER.owner && FILTER.owner !== "all") chips.push(["owner", "Prepared by: " + FILTER.owner]);
+    if (FILTER.pkg && FILTER.pkg !== "all") chips.push(["pkg", "Package: " + pkgLabel(FILTER.pkg)]);
+    if (FILTER.lang && FILTER.lang !== "all") chips.push(["lang", "Language: " + FILTER.lang]);
+    if (FILTER.q && FILTER.q.trim()) chips.push(["q", 'Search: "' + FILTER.q.trim() + '"']);
+    if (FILTER.dateFrom) chips.push(["dateFrom", "From: " + FILTER.dateFrom]);
+    if (FILTER.dateTo) chips.push(["dateTo", "To: " + FILTER.dateTo]);
+    if (!chips.length) { el.innerHTML = ""; return; }
+    el.innerHTML = '<span class="aflabel">Filtering:</span>' +
+      chips.map(function (c) { return '<button type="button" class="afchip" data-clear="' + esc(c[0]) + '">' + esc(c[1]) + ' <span aria-hidden="true">×</span></button>'; }).join("") +
+      '<button type="button" class="afclear" data-clear="__all__">Clear all</button>';
+  }
+  // Reset a single filter (or all) to its default, then re-render.
+  function clearFilter(dim) {
+    if (dim === "__all__") { var fc = $("fClear"); if (fc) { fc.click(); return; } }
+    var defs = { status: "all", minPct: 0, owner: "all", pkg: "all", lang: "all", q: "", dateFrom: "", dateTo: "" };
+    if (dim in defs) { FILTER[dim] = defs[dim]; renderFilters(); renderTable(); }
+  }
+
   function renderTable() {
     var list = getFilteredList();
     // KPI cards + insight charts sit above the filters and must agree with what's
@@ -795,6 +830,7 @@
     // change (renderKpis drops the link-sent pseudo-rows itself).
     renderKpis(list);
     renderInsights(list);
+    renderActiveFilters();
     sortList(list);
     var arrow = FILTER.sortDir === "asc" ? " ▲" : " ▼";
     var head = '<table><thead><tr>' + COLS.map(function (c) {
@@ -917,6 +953,7 @@
     $("count").textContent = sessions.length + (sessions.length === 1 ? " session" : " sessions");
     if (!sessions.length) {
       $("kpis").hidden = true; $("filters").hidden = true; $("insightsWrap").hidden = true;
+      $("activeFilters").innerHTML = "";
       $("body").innerHTML = '<div style="text-align:center;padding:56px 20px;color:var(--muted)">' +
         '<div style="font-size:34px;opacity:.5;margin-bottom:10px">📥</div>' +
         '<div style="font-size:15px;font-weight:700;color:var(--teal);margin-bottom:4px">No onboarding sessions yet</div>' +
@@ -1120,6 +1157,11 @@
     if (e.key !== "Enter" && e.key !== " " && e.key !== "Spacebar") return;
     var row = chartRowFrom(e);
     if (row) { e.preventDefault(); applyChartFilter(row.getAttribute("data-fk"), row.getAttribute("data-fv")); }
+  });
+  // Active-filter chips: click a chip's × to remove just that filter, or "Clear all".
+  $("activeFilters").addEventListener("click", function (e) {
+    var b = (e.target && e.target.closest) ? e.target.closest("[data-clear]") : null;
+    if (b) clearFilter(b.getAttribute("data-clear"));
   });
   load();
   setInterval(pollUpdates, UPDATE_POLL_MS); // background check for new activity
