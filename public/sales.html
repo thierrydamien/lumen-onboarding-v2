@@ -163,6 +163,8 @@
         <label for="briefText" style="display:block;margin-top:14px;font-size:12.5px;font-weight:600;color:#0f172a;">…or just type what the assistant should know <span class="opt">Optional</span></label>
         <div style="font-size:11px;color:#64748b;margin:3px 0 6px;"><b>The client sees this</b>: the assistant repeats it back to confirm at the start of the chat. Uploading or linking above fills it in for you to review.</div>
         <textarea id="briefText" rows="3" placeholder="e.g. Main use case: competitive intelligence. Competitors: Nike, Adidas. Markets: US, UK. Active on Instagram and X." style="width:100%;background:#fff;"></textarea>
+        <div style="margin-top:8px;"><button type="button" class="linklike" id="briefPreviewBtn">Preview how the assistant reads this</button></div>
+        <div id="briefPreview" style="display:none;font-size:12px;margin-top:8px;background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:10px 12px;white-space:pre-wrap;line-height:1.55;color:#334155;"></div>
         <div id="briefStatus" style="display:none;font-size:12px;margin-top:10px;line-height:1.5;"></div>
       </div>
 
@@ -442,7 +444,7 @@
     $("out").classList.remove("show"); // programmatic fill doesn't fire input events, so clear any stale link here too
     $("company").classList.remove("invalid"); $("contactName").classList.remove("invalid"); $("preparedBy").classList.remove("invalid"); $("pkgProduct").classList.remove("invalid"); $("pkgTier").classList.remove("invalid");
     $("err_company").textContent = ""; $("err_contactName").textContent = ""; $("err_preparedBy").textContent = ""; $("err_email").textContent = ""; $("err_pkg").textContent = ""; $("formErr").textContent = "";
-    $("briefUrl").value = ""; if ($("briefStatus")) $("briefStatus").style.display = "none"; // example populates the brief box directly
+    $("briefUrl").value = ""; if ($("briefStatus")) $("briefStatus").style.display = "none"; if ($("briefPreview")) $("briefPreview").style.display = "none"; // example populates the brief box directly
     updatePkgHint(); checkValid();
   }
 
@@ -619,6 +621,32 @@
   }
   $("briefUrlBtn").addEventListener("click", loadFromUrl);
   $("briefUrl").addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); loadFromUrl(); } });
+
+  // Preview: run the free-form brief past the model so the rep can see exactly what
+  // the assistant will treat as known (and what it finds unclear) before generating.
+  async function previewBrief() {
+    var brief = $("briefText").value.trim();
+    var box = $("briefPreview");
+    if (!brief) { box.style.display = ""; box.style.color = "#b42318"; box.textContent = "Type or load a brief first, then preview."; return; }
+    box.style.display = ""; box.style.color = "#64748b"; box.textContent = "Checking how the assistant reads this…";
+    var btn = $("briefPreviewBtn"); btn.disabled = true;
+    try {
+      var headers = { "Content-Type": "application/json" };
+      var tok = sessionStorage.getItem("sales_write_token"); if (tok) headers["x-app-write-token"] = tok;
+      var res = await fetch("/.netlify/functions/preview-brief", { method: "POST", headers: headers, body: JSON.stringify({ brief: brief }) });
+      var data = await res.json().catch(function () { return {}; });
+      if (res.status === 401) { box.style.color = "#b42318"; box.textContent = "Preview needs the sales token. Generate a link once to enter it, then try again."; return; }
+      if (!res.ok || !data.ok) { box.style.color = "#b42318"; box.textContent = "Couldn't generate a preview right now. Try again in a moment."; return; }
+      box.style.color = "#334155"; box.textContent = data.interpretation;
+    } catch (e) {
+      box.style.color = "#b42318"; box.textContent = "Couldn't reach the server for a preview. Try again.";
+    } finally {
+      btn.disabled = false;
+    }
+  }
+  $("briefPreviewBtn").addEventListener("click", previewBrief);
+  // A stale preview shouldn't linger after the text changes.
+  $("briefText").addEventListener("input", function () { var p = $("briefPreview"); if (p) p.style.display = "none"; });
   bindCopy("link", "copy");
 
   // "Create another link": clear the client-specific fields so a rep can generate
@@ -630,6 +658,7 @@
     });
     ["err_company", "err_contactName", "err_email", "formErr"].forEach(function (id) { if ($(id)) $(id).textContent = ""; });
     if ($("briefStatus")) $("briefStatus").style.display = "none"; // drop any imported-brief status for the next client
+    if ($("briefPreview")) $("briefPreview").style.display = "none";
     $("out").classList.remove("show");
     checkValid();
     try { $("company").focus(); $("company").scrollIntoView({ block: "center", behavior: "smooth" }); } catch (e) {}
