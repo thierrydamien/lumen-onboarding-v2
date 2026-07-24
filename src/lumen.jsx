@@ -1290,7 +1290,7 @@ function mergeTopics(cards, markers) {
   const shape = (c, m, i) => ({ name:c.name||m.name||"",
     keywords:m.keywords||c.keywords||"", urls:m.urls||c.urls||"",
     hashtags:m.hashtags||c.hashtags||"", comments:m.comments||c.comments||"",
-    rationale:c.rationale||m.rationale||"", group:c.group||m.group||"",
+    rationale:c.rationale||m.rationale||"", group:c.group||m.group||"", type:m.type||c.type||"",
     id:i, confirmed:!(isGuess(c)||isGuess(m)) });
   if (!cards.length) return markers.map((m, i) => shape({}, m, i));
   const markBy = {};
@@ -3324,7 +3324,7 @@ function buildWorkbook(XL, merged, users) {
     [],
     ["#","Topics/Filters","Group Name\nExamples: Competitors, Industry, Campaigns","Topic/Filter name","Keywords","URLs","Hashtags","Comments"],
   ];
-  topics.forEach((tp,i) => tRows.push([i+1,"",tp.group||"",tp.name||"",tp.keywords||"",tp.urls||"",tp.hashtags||"",tp.rationale||tp.comments||""]));
+  topics.forEach((tp,i) => tRows.push([i+1,tp.type||"",tp.group||"",tp.name||"",tp.keywords||"",tp.urls||"",tp.hashtags||"",tp.rationale||tp.comments||""]));
   while (tRows.length < 31) tRows.push([tRows.length-10,"","","","","","",""]);
   const topicsSheet = XL.utils.aoa_to_sheet(tRows);
   topicsSheet["!merges"] = [{s:{r:0,c:0},e:{r:0,c:7}},{s:{r:1,c:0},e:{r:1,c:7}}];

@@ -525,10 +525,10 @@ function fillTopics_(ss, topics) {
   const sh = sheetLike_(ss, /topic/) ||
     findTabByHeader_(ss, { group: /group/, keywords: /keyword/, urls: /url/, hashtags: /hashtag/ });
   if (!sh) { console.log("fillTopics_: no tab matched /topic/ (and no content match) — see the tab list above"); return; }
-  const header = detectHeader_(sh, { group: /group/, name: /topic.*name|filter name/, keywords: /keyword/, urls: /url/, hashtags: /hashtag/, comments: /comment/ });
+  const header = detectHeader_(sh, { type: /topics?\s*\/\s*filters?/, group: /group/, name: /topic.*name|filter name/, keywords: /keyword/, urls: /url/, hashtags: /hashtag/, comments: /comment/ });
   if (!header) { console.log("fillTopics_: header not detected on '" + sh.getName() + "'"); return; }
   writeRows_(sh, header, topics, function (t) {
-    return { group: t.group || "", name: t.name || "", keywords: t.keywords || "", urls: t.urls || "", hashtags: t.hashtags || "", comments: t.comments || t.rationale || "" };
+    return { type: topicKind_(t.type), group: t.group || "", name: t.name || "", keywords: t.keywords || "", urls: t.urls || "", hashtags: t.hashtags || "", comments: t.comments || t.rationale || "" };
   });
 }
 
@@ -551,6 +551,14 @@ function ownedLabel_(v) {
   if (v === true || v === "true" || v === "TRUE") return "Owned";
   if (v === false || v === "false" || v === "FALSE") return "Public";
   return v || "";
+}
+
+// Topic vs Filter: the brief carries the model's classification as "Topic"/"Filter".
+// Normalize to exactly the sheet's dropdown wording; anything unrecognized stays
+// blank so the client fills it in rather than writing an invalid dropdown value.
+function topicKind_(v) {
+  const s = String(v == null ? "" : v).trim().toLowerCase();
+  return s === "filter" ? "Filter" : s === "topic" ? "Topic" : "";
 }
 
 // Reports/Dashboards/Alerts: ONE tab with TWO stacked sections, each with its own
