@@ -145,6 +145,37 @@ async function packageBlockFor(seedId) {
   return block;
 }
 
+// The rep can attach a filled Lumen brief template on the sales page; its
+// structured, client-appropriate facts (brands, markets, competitors, channels,
+// campaign, issues) are stored in the seed and resolved here SERVER-SIDE. Unlike
+// the confidential notes, the brief is meant to be SURFACED: the prompt tells the
+// model to open by confirming and refining it rather than asking for it cold.
+const _briefCache = new Map();
+async function briefFor(seedId) {
+  if (typeof seedId !== "string" || !/^sd_[A-Za-z0-9-]{1,64}$/.test(seedId)) return "";
+  if (_briefCache.has(seedId)) return _briefCache.get(seedId);
+  let brief = "";
+  let timer;
+  try {
+    const rec = await Promise.race([
+      getStore(SEED_STORE).get(seedId, { type: "json" }),
+      new Promise((_, rej) => { timer = setTimeout(() => rej(new Error("brief_lookup_timeout")), NOTES_LOOKUP_MS); }),
+    ]);
+    if (rec && typeof rec.brief === "string") brief = rec.brief.trim().slice(0, 4000);
+  } catch (err) {
+    console.warn("Sales-brief lookup failed; proceeding without brief", err && err.message);
+    return ""; // transient failure — don't cache, a retry can still resolve it
+  } finally {
+    clearTimeout(timer);
+  }
+  if (_briefCache.size > 500) _briefCache.clear();
+  _briefCache.set(seedId, brief);
+  return brief;
+}
+function briefSystemBlock(brief) {
+  return "SALES BRIEF for this seeded session: the client's own team supplied these facts up front, so you ALREADY know them. Unlike the confidential consultant notes, you MAY reference these openly with the client. Do NOT ask for them cold as if you knew nothing. OPEN by briefly confirming and refining them in natural language (for example: \"I can see you're focused on competitive intelligence, already tracking a couple of competitors, and active on Instagram and X, is that right?\"), then build on them and fill the gaps. If a value looks off or is missing, ask about just that one thing. Treat every value as a starting point to verify with the client, not as settled fact, and keep applying your normal quality standard. Brief: " + brief;
+}
+
 // Defense in depth for the confidential notes. The prompt forbids echoing them, but
 // that is model obedience; this catches a VERBATIM leak server-side. On a hit we
 // regenerate once with the corrective below; if it still leaks we return a
@@ -273,9 +304,9 @@ export default async (req) => {
   // be fetched, so this can only ADD context, never gate the reply.
   // Notes and the package allowance both live in the seed; resolve them in parallel
   // (both additive, never gating — a lookup failure just omits that block).
-  const [notes, packageBlock] = seedId != null
-    ? await Promise.all([consultantNotesFor(seedId), packageBlockFor(seedId)])
-    : ["", ""];
+  const [notes, packageBlock, brief] = seedId != null
+    ? await Promise.all([consultantNotesFor(seedId), packageBlockFor(seedId), briefFor(seedId)])
+    : ["", "", ""];
 
   // Prompt caching: the large, stable SYSTEM_PROMPT is marked cacheable so it is
   // billed at ~10% on subsequent turns instead of resent in full each call. The
@@ -288,6 +319,7 @@ export default async (req) => {
     { type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } },
     ...(notes ? [{ type: "text", text: notesSystemBlock(notes) }] : []),
     ...(packageBlock ? [{ type: "text", text: packageBlock }] : []),
+    ...(brief ? [{ type: "text", text: briefSystemBlock(brief) }] : []),
     ...(overstateFix ? [{ type: "text", text: OVERSTATE_FIX }] : []),
   ];
 
