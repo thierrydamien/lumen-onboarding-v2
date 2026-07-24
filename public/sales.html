@@ -160,6 +160,9 @@
           <span aria-hidden="true" style="font-size:13px;">&#9432;</span>
           <span>For a pasted link to work, the sheet has to be shared so <b>anyone with the link can view</b>. If it stays private the assistant can't read it, so download it and upload the .xlsx instead.</span>
         </div>
+        <label for="briefText" style="display:block;margin-top:14px;font-size:12.5px;font-weight:600;color:#0f172a;">…or just type what the assistant should know <span class="opt">Optional</span></label>
+        <div style="font-size:11px;color:#64748b;margin:3px 0 6px;">The assistant opens the chat by confirming these with the client. Uploading or linking above fills this in for you to review and edit.</div>
+        <textarea id="briefText" rows="3" placeholder="e.g. Main use case: competitive intelligence. Competitors: Nike, Adidas. Markets: US, UK. Active on Instagram and X." style="width:100%;background:#fff;"></textarea>
         <div id="briefStatus" style="display:none;font-size:12px;margin-top:10px;line-height:1.5;"></div>
       </div>
 
@@ -361,7 +364,6 @@
   }
 
   var _genSeq = 0;
-  var _brief = ""; // surfaceable client facts parsed from an uploaded brief template; sent in the seed, confirmed by the assistant
   async function generate() {
     var myGen = ++_genSeq;
     $("formErr").textContent = "";
@@ -391,7 +393,7 @@
       email: $("email").value.trim(),
       industry: $("industry").value.trim(),
       notes: $("notes").value.trim(),
-      brief: _brief,
+      brief: $("briefText").value.trim(),
       language: $("language").value,
       preparedBy: preparedBy,
       package: pkg
@@ -413,8 +415,8 @@
       // no-op while the panel is still hidden, so it can't catch this case).
       var changed = $("company").value.trim() !== seed.company || $("contactName").value.trim() !== seed.contactName
         || $("email").value.trim() !== seed.email || $("industry").value.trim() !== seed.industry
-        || $("notes").value.trim() !== seed.notes || $("language").value !== seed.language
-        || $("preparedBy").value.trim() !== seed.preparedBy;
+        || $("notes").value.trim() !== seed.notes || $("briefText").value.trim() !== seed.brief
+        || $("language").value !== seed.language || $("preparedBy").value.trim() !== seed.preparedBy;
       if (myGen !== _genSeq || changed) { $("formErr").textContent = "Details changed — click Generate again for an updated link."; return; }
       $("link").value = CHAT_BASE + "?s=" + encodeURIComponent(data.id);
       setExpiryNote(data.expiresAt);
@@ -434,12 +436,13 @@
     $("contactName").value = "Jane Smith";
     $("email").value = "jane@acmecorp.com";
     $("industry").value = "Consumer goods, footwear and apparel";
-    $("notes").value = "Main use case: competitive intelligence\nKey competitors: Nike, Adidas\nMigrating from: Brandwatch";
+    $("notes").value = "Champion: VP Marketing. Renewal in Q3, wants an early win. Previous Brandwatch setup was slow.";
+    $("briefText").value = "Main use case: competitive intelligence\nKey competitors: Nike, Adidas\nKey markets: US, UK\nMigrating from: Brandwatch";
     $("pkgProduct").value = "analyze"; $("pkgTier").value = "advanced";
     $("out").classList.remove("show"); // programmatic fill doesn't fire input events, so clear any stale link here too
     $("company").classList.remove("invalid"); $("contactName").classList.remove("invalid"); $("preparedBy").classList.remove("invalid"); $("pkgProduct").classList.remove("invalid"); $("pkgTier").classList.remove("invalid");
     $("err_company").textContent = ""; $("err_contactName").textContent = ""; $("err_preparedBy").textContent = ""; $("err_email").textContent = ""; $("err_pkg").textContent = ""; $("formErr").textContent = "";
-    _brief = ""; $("briefUrl").value = ""; if ($("briefStatus")) $("briefStatus").style.display = "none"; // example data carries no imported brief
+    $("briefUrl").value = ""; if ($("briefStatus")) $("briefStatus").style.display = "none"; // example populates the brief box directly
     updatePkgHint(); checkValid();
   }
 
@@ -548,8 +551,8 @@
 
   // Brief import: a filled Lumen template — uploaded .xlsx, or a link to a
   // link-viewable Google Sheet — is parsed server-side (parse-brief). Its fields
-  // pre-fill the form (rep reviews before generating) and its surfaceable facts go
-  // into _brief, which the assistant confirms with the client. The template's
+  // pre-fill the form (rep reviews before generating) and its surfaceable facts fill
+  // the visible brief box, which the assistant confirms with the client. The template's
   // "internal notes" row merges into the visible notes box. Unrecognized inputs are
   // rejected by the parser, so a rep can't feed the assistant an arbitrary dump.
   function briefMsg(txt, kind) {
@@ -575,7 +578,7 @@
       if (data.form.industry) $("industry").value = data.form.industry;
     }
     if (data.notes) { var cur = $("notes").value.trim(); $("notes").value = cur ? (cur + "\n" + data.notes) : data.notes; }
-    _brief = data.brief || "";
+    if (data.brief) { var curB = $("briefText").value.trim(); $("briefText").value = curB ? (curB + "\n" + data.brief) : data.brief; }
     $("out").classList.remove("show"); // any previously generated link is now stale
     var n = data.filledCount || 0;
     briefMsg("Loaded " + n + " field" + (n === 1 ? "" : "s") + " from " + sourceLabel + ". Review the details below, then generate the link.", "ok");
@@ -622,11 +625,11 @@
   // the next client's link without hand-deleting everything. Keeps the rep's name,
   // product, package and language (usually the same across a batch).
   function resetForNext() {
-    ["company", "contactName", "email", "industry", "notes", "briefUrl"].forEach(function (id) {
+    ["company", "contactName", "email", "industry", "notes", "briefText", "briefUrl"].forEach(function (id) {
       var e = $(id); if (e) { e.value = ""; e.classList.remove("invalid"); }
     });
     ["err_company", "err_contactName", "err_email", "formErr"].forEach(function (id) { if ($(id)) $(id).textContent = ""; });
-    _brief = ""; if ($("briefStatus")) $("briefStatus").style.display = "none"; // drop any uploaded brief for the next client
+    if ($("briefStatus")) $("briefStatus").style.display = "none"; // drop any imported-brief status for the next client
     $("out").classList.remove("show");
     checkValid();
     try { $("company").focus(); $("company").scrollIntoView({ block: "center", behavior: "smooth" }); } catch (e) {}
@@ -659,7 +662,7 @@
 
   // Clear a stale link the moment the form is edited, so a consultant can never
   // copy a link that points to a different client's seed than what's on screen.
-  ["company", "contactName", "email", "industry", "notes", "language", "preparedBy", "pkgProduct", "pkgTier"].forEach(function (id) {
+  ["company", "contactName", "email", "industry", "notes", "briefText", "language", "preparedBy", "pkgProduct", "pkgTier"].forEach(function (id) {
     var el = $(id);
     if (!el) return;
     el.addEventListener("input", function () { $("out").classList.remove("show"); });
