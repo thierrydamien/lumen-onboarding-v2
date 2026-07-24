@@ -3061,7 +3061,7 @@ input,textarea,select,button{font-family:inherit}
         {(messages.filter(m=>m.role==="assistant").slice(-1)[0]?.content)||""}
       </div>
       {/* Messages */}
-      <div ref={msgRef} style={{flex:1,overflowY:"auto",padding:"24px 16px",maxWidth:760,width:"100%",margin:"0 auto",alignSelf:"center",transform:sideCol&&showPanel&&started?"translateX(-160px)":"none",transition:"transform 0.25s ease"}}>
+      <div ref={msgRef} style={{flex:1,overflowY:"auto",padding:"24px 16px",maxWidth:760,width:"100%",margin:"0 auto",alignSelf:"center",transform:sideCol&&showPanel&&started?(uiLang==="Arabic"?"translateX(160px)":"translateX(-160px)"):"none",transition:"transform 0.25s ease"}}>
 
         {!started && !saved && (
           <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",minHeight:"100%",padding:"24px 24px",textAlign:"center",position:"relative",overflow:"hidden"}}>
@@ -3209,7 +3209,7 @@ input,textarea,select,button{font-family:inherit}
 
       {/* Input */}
       {started && <div style={{background:C.card,borderTop:`1px solid ${C.border}`,padding:"12px 16px",paddingBottom:"calc(12px + env(safe-area-inset-bottom, 0px))",flexShrink:0}}>
-        <div style={{maxWidth:760,margin:"0 auto",transform:sideCol&&showPanel&&started?"translateX(-160px)":"none",transition:"transform 0.25s ease"}}>
+        <div style={{maxWidth:760,margin:"0 auto",transform:sideCol&&showPanel&&started?(uiLang==="Arabic"?"translateX(160px)":"translateX(-160px)"):"none",transition:"transform 0.25s ease"}}>
           <div style={{display:"flex",gap:8,alignItems:"flex-end"}}>
             {/* Attach a supporting document at any point (not just at the QUERIES step). */}
             <input ref={attachRef} type="file" accept=".txt,.csv,.xlsx,.xls,.docx,text/plain,text/csv,application/vnd.openxmlformats-officedocument.wordprocessingml.document" onChange={onAttachFile} style={{display:"none"}} aria-hidden="true"/>

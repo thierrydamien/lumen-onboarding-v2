@@ -482,6 +482,15 @@ function writeRows_(sh, header, items, toRow) {
     }
     try {
       region.setValues(grid);
+      // Normalize the written data region to the template's clean data-row look:
+      // white background, dark font. The template ships some pre-styled RED data rows
+      // (light text); setValues writes values only, so items landing on those rows
+      // inherit the red fill and light text and are unreadable. `region` is scoped to
+      // the rows we write (firstDataRow = header.row + 2), so headers are never touched.
+      // Own try/catch: a formatting failure must NOT fall into the per-cell fallback
+      // below (setValues already succeeded).
+      try { region.setBackground("#FFFFFF").setFontColor("#000000"); }
+      catch (fmtErr) { console.log("writeRows_ '" + sh.getName() + "' formatting normalize skipped: " + fmtErr); }
       console.log("writeRows_ '" + sh.getName() + "': wrote " + items.length + " item(s) (batched)");
       return;
     } catch (e) { console.log("writeRows_ '" + sh.getName() + "' batch rejected, per-cell fallback: " + e); }
