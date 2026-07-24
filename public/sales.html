@@ -135,7 +135,7 @@
     <div class="lead"><h1>Create a client onboarding link</h1></div>
 
     <div class="how">
-      <div class="step"><div class="n">1</div><h4>You prep the link</h4><p>Add the client's basics and any context. Notes shape the AI assistant but stay internal.</p></div>
+      <div class="step"><div class="n">1</div><h4>You prep the link</h4><p>Add the client's basics, plus anything you already know so the assistant confirms it instead of re-asking.</p></div>
       <div class="step"><div class="n">2</div><h4>Client does the chat</h4><p>A ~15-min guided conversation with an AI assistant, in their language. They can pause and resume anytime.</p></div>
       <div class="step"><div class="n">3</div><h4>The team takes over</h4><p>Their setup brief goes straight to the onboarding team, who follow up from there.</p></div>
     </div>
@@ -163,6 +163,11 @@
         <label for="briefText" style="display:block;margin-top:14px;font-size:12.5px;font-weight:600;color:#0f172a;">…or just type what the assistant should know <span class="opt">Optional</span></label>
         <div style="font-size:11px;color:#64748b;margin:3px 0 6px;"><b>The client sees this</b>: the assistant repeats it back to confirm at the start of the chat. Uploading or linking above fills it in for you to review.</div>
         <textarea id="briefText" rows="3" placeholder="e.g. Main use case: competitive intelligence. Competitors: Nike, Adidas. Markets: US, UK. Active on Instagram and X." style="width:100%;background:#fff;"></textarea>
+        <div class="chips" style="margin-top:6px;">
+          <button type="button" class="chip" data-add="Main use case: ">+ Main use case</button>
+          <button type="button" class="chip" data-add="Key competitors: ">+ Key competitors</button>
+          <button type="button" class="chip" data-add="Migrating from: ">+ Migrating from…</button>
+        </div>
         <div style="margin-top:8px;"><button type="button" class="linklike" id="briefPreviewBtn">Preview how the assistant reads this</button></div>
         <div id="briefPreview" style="display:none;font-size:12px;margin-top:8px;background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:10px 12px;white-space:pre-wrap;line-height:1.55;color:#334155;"></div>
         <div id="briefStatus" style="display:none;font-size:12px;margin-top:10px;line-height:1.5;"></div>
@@ -229,17 +234,6 @@
       <label for="preparedBy" style="margin-top:14px;">Prepared by <span class="req">Required</span> <span class="opt">· remembered on this device</span></label>
       <input id="preparedBy" placeholder="Your name"/>
       <div class="ferr" id="err_preparedBy"></div>
-
-      <label for="notes" style="margin-top:14px;">Notes for the onboarding team <span class="opt">Optional</span></label>
-      <div class="notewrap">
-        <div class="cap"><b>The client never sees this</b> · it just shapes the assistant quietly</div>
-        <textarea id="notes" rows="3" placeholder="Priorities, key competitors, anything the team should know going in."></textarea>
-        <div class="chips">
-          <button type="button" class="chip" data-add="Main use case: ">+ Main use case</button>
-          <button type="button" class="chip" data-add="Key competitors: ">+ Key competitors</button>
-          <button type="button" class="chip" data-add="Migrating from: ">+ Migrating from…</button>
-        </div>
-      </div>
 
       <div class="actions">
         <button class="btn" id="gen">Generate link</button>
@@ -394,7 +388,6 @@
       contactName: contactName,
       email: $("email").value.trim(),
       industry: $("industry").value.trim(),
-      notes: $("notes").value.trim(),
       brief: $("briefText").value.trim(),
       language: $("language").value,
       preparedBy: preparedBy,
@@ -417,7 +410,7 @@
       // no-op while the panel is still hidden, so it can't catch this case).
       var changed = $("company").value.trim() !== seed.company || $("contactName").value.trim() !== seed.contactName
         || $("email").value.trim() !== seed.email || $("industry").value.trim() !== seed.industry
-        || $("notes").value.trim() !== seed.notes || $("briefText").value.trim() !== seed.brief
+        || $("briefText").value.trim() !== seed.brief
         || $("language").value !== seed.language || $("preparedBy").value.trim() !== seed.preparedBy;
       if (myGen !== _genSeq || changed) { $("formErr").textContent = "Details changed — click Generate again for an updated link."; return; }
       $("link").value = CHAT_BASE + "?s=" + encodeURIComponent(data.id);
@@ -438,7 +431,6 @@
     $("contactName").value = "Jane Smith";
     $("email").value = "jane@acmecorp.com";
     $("industry").value = "Consumer goods, footwear and apparel";
-    $("notes").value = "Champion: VP Marketing. Renewal in Q3, wants an early win. Previous Brandwatch setup was slow.";
     $("briefText").value = "Main use case: competitive intelligence\nKey competitors: Nike, Adidas\nKey markets: US, UK\nMigrating from: Brandwatch";
     $("pkgProduct").value = "analyze"; $("pkgTier").value = "advanced";
     $("out").classList.remove("show"); // programmatic fill doesn't fire input events, so clear any stale link here too
@@ -579,7 +571,6 @@
       if (data.form.email) $("email").value = data.form.email;
       if (data.form.industry) $("industry").value = data.form.industry;
     }
-    if (data.notes) { var cur = $("notes").value.trim(); $("notes").value = cur ? (cur + "\n" + data.notes) : data.notes; }
     if (data.brief) { var curB = $("briefText").value.trim(); $("briefText").value = curB ? (curB + "\n" + data.brief) : data.brief; }
     $("out").classList.remove("show"); // any previously generated link is now stale
     var n = data.filledCount || 0;
@@ -653,7 +644,7 @@
   // the next client's link without hand-deleting everything. Keeps the rep's name,
   // product, package and language (usually the same across a batch).
   function resetForNext() {
-    ["company", "contactName", "email", "industry", "notes", "briefText", "briefUrl"].forEach(function (id) {
+    ["company", "contactName", "email", "industry", "briefText", "briefUrl"].forEach(function (id) {
       var e = $(id); if (e) { e.value = ""; e.classList.remove("invalid"); }
     });
     ["err_company", "err_contactName", "err_email", "formErr"].forEach(function (id) { if ($(id)) $(id).textContent = ""; });
@@ -674,11 +665,11 @@
     });
   });
 
-  // Notes shortcut chips: append a labelled line to the notes field so reps fill
-  // it in a consistent shape. Doesn't overwrite anything they've already typed.
+  // Brief shortcut chips: append a labelled line to the brief box so reps fill it
+  // in a consistent shape. Doesn't overwrite anything they've already typed.
   Array.prototype.forEach.call(document.querySelectorAll(".chip"), function (chip) {
     chip.addEventListener("click", function () {
-      var t = $("notes"), add = chip.getAttribute("data-add");
+      var t = $("briefText"), add = chip.getAttribute("data-add");
       // Don't append the same labelled line twice; if it's already there, just focus.
       if (t.value.indexOf(add.trim()) !== -1) { t.focus(); return; }
       var cur = t.value.replace(/\s+$/, "");
@@ -691,7 +682,7 @@
 
   // Clear a stale link the moment the form is edited, so a consultant can never
   // copy a link that points to a different client's seed than what's on screen.
-  ["company", "contactName", "email", "industry", "notes", "briefText", "language", "preparedBy", "pkgProduct", "pkgTier"].forEach(function (id) {
+  ["company", "contactName", "email", "industry", "briefText", "language", "preparedBy", "pkgProduct", "pkgTier"].forEach(function (id) {
     var el = $(id);
     if (!el) return;
     el.addEventListener("input", function () { $("out").classList.remove("show"); });
