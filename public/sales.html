@@ -146,9 +146,9 @@
 
       <div id="briefBox" style="border:1px solid #e6e8ee;border-radius:10px;padding:14px 16px;margin:2px 0 20px;background:#faf9ff;">
         <div style="font-weight:700;font-size:13px;color:#0f172a;">Have a completed brief? <span class="opt">Optional shortcut</span></div>
-        <p style="font-size:12px;color:#64748b;margin:6px 0 10px;line-height:1.5;">Upload a filled Lumen brief template to pre-fill the fields below and give the assistant a head start, so the client doesn't repeat what they already told you.</p>
+        <p style="font-size:12px;color:#64748b;margin:6px 0 10px;line-height:1.5;">Upload a filled media brief (or paste a link to one) to pre-fill the fields below and give the assistant a head start, so the client doesn't repeat what they already told you.</p>
         <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;">
-          <a class="linklike" href="/lumen-brief-template.xlsx" download>↓ Download the template</a>
+          <a class="linklike" href="/media-brief-template.xlsx" download="Media Brief Template.xlsx">↓ Download the media brief template</a>
           <label class="btn alt" for="briefFile" style="cursor:pointer;">Upload completed brief</label>
           <input id="briefFile" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style="display:none;"/>
         </div>
@@ -554,7 +554,7 @@
     el.style.color = kind === "err" ? "#b42318" : (kind === "ok" ? "#0a5c2a" : "#64748b");
   }
   var BRIEF_ERRORS = {
-    not_template: "That doesn't look like the Lumen brief template. Download the template above, fill it in, and use that.",
+    not_template: "That doesn't look like the media brief template. Download it above, fill it in, and use that.",
     template_empty: "That template looks empty. Fill in a few fields and try again.",
     too_large: "That file is too large. Use the Lumen brief template (it's small).",
     unreadable: "Couldn't read that file. Make sure it's the .xlsx template, not a PDF.",

@@ -1,130 +1,181 @@
-// parse-brief: server-side parser for the Lumen Onboarding Brief template.
+// parse-brief: server-side parser for the Talkwalker/Lumen "Media Brief Form"
+// template (the fixed "MAKE A COPY" workbook sales already use).
 //
 // Two inputs, one parser:
-//   { base64 }   -> an uploaded .xlsx the rep filled from our template
+//   { base64 }   -> an uploaded .xlsx (a filled copy of the template)
 //   { sheetUrl } -> a pasted Google Sheet link. We NEVER fetch the raw URL
-//                   (SSRF): we validate host === docs.google.com, extract the
-//                   sheet id, and fetch the export endpoint WE build. This only
-//                   works when the sheet is shared "anyone with the link can
-//                   view"; a private sheet returns Google's HTML login page, which
-//                   we detect (not a zip) and report as not_accessible so the rep
-//                   downloads and uploads instead.
+//                   (SSRF): we validate host === docs.google.com, extract the id,
+//                   and fetch the export endpoint WE build. Works only when the
+//                   sheet is shared "anyone with the link can view"; a private
+//                   sheet returns Google's HTML login page, which we detect (not a
+//                   zip) and report as not_accessible so the rep uploads instead.
 //
-// Sales fills a FIXED template (label in column A, value in column B). We match
-// only known labels and ignore everything else, so stray rows can't break it. A
-// signature cell gates non-template inputs. We scan ALL tabs for the signature so
-// the template still parses when it is one tab in a larger workbook.
-//
-// Output splits into two channels with different downstream semantics:
-//   - brief : client-appropriate facts the chat SURFACES and confirms.
-//   - notes : the single "internal notes" row -> the CONFIDENTIAL notes channel
-//             the chat must never reveal.
+// HOW WE PARSE A MESSY, FIXED TEMPLATE: the template's label cells are identical
+// in every copy (reps fill values, never edit labels), so we embed the exact label
+// set below. In an upload, any cell whose text matches a known label IS a label;
+// every other non-empty cell is a rep-entered VALUE. Each value is attached to its
+// nearest label (same row to the left, else nearest label above), which matches the
+// form's "label left/above, value right/below" layout. This tolerates the merged
+// cells and irregular positions without hardcoding fragile addresses. The whole
+// brief is client-facing (no confidential-notes field), so it all becomes the
+// surfaceable brief the chat confirms; company and industry also pre-fill the form.
 
 import * as XLSX from "xlsx";
 
-const SIGNATURE = "Lumen Onboarding Brief";
-const MAX_BYTES = 2 * 1024 * 1024; // a filled template is tiny; never a data dump
-const FETCH_MS = 6000;             // bound the Google fetch inside the function wall-clock
+const MAX_BYTES = 2 * 1024 * 1024;
+const FETCH_MS = 6000;
+const SIGNATURE_RE = /media brief form/;
 
-export const FIELD_SPEC = [
-  { section: "BASIC INFORMATION" },
-  { key: "company",     label: "Company name",                     target: "form:company" },
-  { key: "brands",      label: "Key brands or products",           target: "brief:Key brands / products" },
-  { key: "industry",    label: "Industry",                         target: "form:industry" },
-  { key: "markets",     label: "Key markets or regions",           target: "brief:Key markets / regions" },
-  { key: "languages",   label: "Monitoring languages",             target: "brief:Monitoring languages", hint: "languages to monitor content in (not the onboarding UI language)" },
-  { key: "objectives",  label: "Business objectives",              target: "brief:Business objectives" },
-  { key: "painpoints",  label: "Current tool or pain points",      target: "brief:Current tool / pain points" },
+const norm = s => String(s == null ? "" : s).replace(/\s+/g, " ").trim();
+const low = s => norm(s).toLowerCase();
 
-  { section: "COMPETITORS (up to 3)" },
-  { key: "competitor1", label: "Competitor 1",                     target: "competitor" },
-  { key: "competitor2", label: "Competitor 2",                     target: "competitor" },
-  { key: "competitor3", label: "Competitor 3",                     target: "competitor" },
+// Exact label strings from the template (all tabs). Used only to distinguish
+// fixed labels from rep-entered values, so nothing here needs to be pretty.
+const LABELS = new Set([
+  "media brief form for a custom demo on talkwalker platform",
+  "basic information (compulsory)",
+  "company name/ holding company",
+  "1-2 key brands/product names",
+  "key geographical markets/ regions (area to focus for the demo)",
+  'key languages (please add english keywords & translation in the "additional info" tab)',
+  "industry",
+  "1-2 business questions you hope to solve with social listening or objectives to be achieved from the tool",
+  "for users of any listening tool: any painpoint/ missing feature/area of difficulty in your current tool?",
+  "demo use case 1*",
+  "key concerns for the use case / metrics you would like to see (sentiment etc)",
+  "demo use case 2*",
+  "social media channels active in the past 30 days (links only) facebook, instagram, twitter, youtube, app stores",
+  "comments/remarks/ anything to highlight essential for you to see on the demo (if any):",
+  "a &b)", "c)", "d)", "e)", "f)", "1)", "2)", "3)",
+  "brand health/ pr measurement/ social measurement/ brand influencer discovery",
+  "competitor intelligence (max 3 competitors for demo)",
+  "key media sources/influencer list (if applicable)",
+  "competitor name 1", "competitor name 2", "competitor name 3",
+  "geographical markets", "additional remarks (if any)",
+  "industry trends/ consumer insights (non-brand specific)",
+  "objective or business purpose of understanding trends or consumer insights in the industry/ about the product",
+  "specific product category/ industry",
+  "1-3 industry areas/ consumer attributes of the product you want to discover (e.g aspects that you want to slice & dice the data further)",
+  "issue tracking/ crisis management/ reputation management",
+  "current known issues", "known issue keywords",
+  "potential issues or areas of concern for your company/industry",
+  "social campaign performance tracking (only feasible if you have a campaign hashtag that is active currently)",
+  "campaign/ event name & #hashtags", "campaign/ event mechanics (eg retweet & win etc)",
+  "period (has to be within the past 30 days)", "known influencers/ media",
+  "web sources and urls",
+]);
 
-  { section: "TOPICS AND USE CASES" },
-  { key: "usecase1",    label: "Primary use case",                 target: "brief:Primary use case", hint: "e.g. Brand Health, Competitive Intelligence, Issue Tracking, Campaign Tracking, Trend Research" },
-  { key: "usecase2",    label: "Secondary use case",               target: "brief:Secondary use case" },
-  { key: "issues",      label: "Known issues or crisis keywords",  target: "brief:Known issues / crisis keywords" },
-  { key: "campaign",    label: "Campaign name and hashtags",       target: "brief:Campaign name / hashtags" },
+// Structural cells that are labels (so they aren't read as values) but must NOT be
+// emitted as fields or own a value: the title, section banners, markers, the
+// instruction note. A value near one of these is attributed to the next real label.
+const SKIP = new Set([
+  "media brief form for a custom demo on talkwalker platform",
+  "basic information (compulsory)",
+  "a &b)", "c)", "d)", "e)", "f)", "1)", "2)", "3)",
+  "brand health/ pr measurement/ social measurement/ brand influencer discovery",
+  "competitor intelligence (max 3 competitors for demo)",
+  "industry trends/ consumer insights (non-brand specific)",
+  "issue tracking/ crisis management/ reputation management",
+  "social campaign performance tracking (only feasible if you have a campaign hashtag that is active currently)",
+]);
+function isSkip(l) { return SKIP.has(l) || l.startsWith("*please fill out"); }
+function isLabel(l) { return LABELS.has(l) || l.startsWith("*please fill out"); }
 
-  { section: "CHANNELS" },
-  { key: "channels",    label: "Owned social channels (URLs)",     target: "brief:Owned social channels (URLs)", hint: "full URLs, comma-separated or one per line" },
-
-  { section: "CLIENT CONTACT (optional)" },
-  { key: "contactName", label: "Client contact name",              target: "form:contactName" },
-  { key: "contactEmail",label: "Client contact email",             target: "form:email" },
-
-  { section: "INTERNAL (not shown to the client)" },
-  { key: "notes",       label: "Internal notes for the onboarding team", target: "notes" },
-];
-
-const FIELDS = FIELD_SPEC.filter(f => f.key);
-const norm = s => String(s == null ? "" : s).replace(/\s+/g, " ").trim().toLowerCase();
+// Prettier display for the verbose labels; others fall through trimmed.
+const RELABEL = {
+  "company name/ holding company": "Company",
+  "1-2 key brands/product names": "Key brands / products",
+  "key geographical markets/ regions (area to focus for the demo)": "Key markets / regions",
+  'key languages (please add english keywords & translation in the "additional info" tab)': "Key languages",
+  "1-2 business questions you hope to solve with social listening or objectives to be achieved from the tool": "Business questions / objectives",
+  "for users of any listening tool: any painpoint/ missing feature/area of difficulty in your current tool?": "Current-tool pain points",
+  "demo use case 1*": "Demo use case 1",
+  "demo use case 2*": "Demo use case 2",
+  "key concerns for the use case / metrics you would like to see (sentiment etc)": "Key metrics / concerns",
+  "social media channels active in the past 30 days (links only) facebook, instagram, twitter, youtube, app stores": "Social channels",
+  "comments/remarks/ anything to highlight essential for you to see on the demo (if any):": "Comments / remarks",
+  "objective or business purpose of understanding trends or consumer insights in the industry/ about the product": "Trend/consumer objective",
+  "specific product category/ industry": "Product category / industry",
+  "1-3 industry areas/ consumer attributes of the product you want to discover (e.g aspects that you want to slice & dice the data further)": "Industry areas / attributes",
+  "web sources and urls": "Web sources / URLs",
+};
+function display(text) {
+  const l = low(text);
+  if (RELABEL[l]) return RELABEL[l];
+  const t = norm(text);
+  return t.length > 60 ? t.slice(0, 57) + "…" : t;
+}
 
 function json(status, body) {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 }
 
-// Match a column-A label to a spec field: exact normalized match, else prefix
-// (tolerates a rep appending "(optional)" etc.).
-function matchField(labelCell) {
-  const n = norm(labelCell);
-  if (!n) return null;
-  for (const f of FIELDS) {
-    const fl = norm(f.label);
-    if (n === fl || n.startsWith(fl) || fl.startsWith(n)) return f;
+// Parse one sheet into ordered { labelCell, value } pairs plus any orphan values.
+function pairsForSheet(rows) {
+  const labelCells = []; // { r, c, text }
+  const valueCells = []; // { r, c, text }
+  for (let r = 0; r < rows.length; r++) {
+    const row = rows[r] || [];
+    for (let c = 0; c < row.length; c++) {
+      const text = norm(row[c]);
+      if (!text) continue;
+      (isLabel(low(text)) ? labelCells : valueCells).push({ r, c, text });
+    }
   }
-  return null;
+  // Attach each value to its nearest owning (non-skip) label: same row to the left,
+  // else nearest label above in the same column.
+  const byOwner = new Map(); // key "r,c" -> { label, values: [] }
+  const orphans = [];
+  const ownable = labelCells.filter(l => !isSkip(low(l.text)));
+  for (const v of valueCells) {
+    let owner = null;
+    for (const l of ownable) if (l.r === v.r && l.c < v.c && (!owner || l.c > owner.c)) owner = l;
+    if (!owner) for (const l of ownable) if (l.c === v.c && l.r < v.r && (!owner || l.r > owner.r)) owner = l;
+    if (!owner) { orphans.push(v.text); continue; }
+    const key = owner.r + "," + owner.c;
+    if (!byOwner.has(key)) byOwner.set(key, { label: owner, values: [] });
+    byOwner.get(key).values.push(v.text);
+  }
+  // Emit in reading order (top-to-bottom, left-to-right by owner position).
+  const ordered = [...byOwner.values()].sort((a, b) => a.label.r - b.label.r || a.label.c - b.label.c);
+  return { pairs: ordered.map(o => ({ label: o.label.text, value: o.values.join("; ") })), orphans };
 }
 
-// Parse a workbook buffer into the two channels. Scans every sheet for the
-// signature row so the template parses even as one tab among many.
-function extractFromWorkbook(buf) {
-  let wb;
-  try { wb = XLSX.read(buf, { type: "buffer" }); }
-  catch { return { error: "unreadable" }; }
-
-  let rows = null;
-  for (const name of wb.SheetNames) {
-    const ws = wb.Sheets[name];
-    if (!ws) continue;
-    const r = XLSX.utils.sheet_to_json(ws, { header: 1, blankrows: false, defval: "" });
-    const firstRow = (r[0] || []).map(norm).join(" ");
-    if (firstRow.includes(norm(SIGNATURE))) { rows = r; break; }
+function parseMediaBrief(wb) {
+  const dataSheets = wb.SheetNames.filter(n => low(n) !== "dropdown list");
+  let signed = false;
+  for (const n of wb.SheetNames) {
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, blankrows: false, defval: "" });
+    if ((rows[0] || []).some(c => SIGNATURE_RE.test(low(c)))) { signed = true; break; }
   }
-  if (!rows) return { error: "not_template" };
-
-  const found = {};
-  for (const row of rows) {
-    if (!Array.isArray(row) || row.length < 2) continue;
-    const f = matchField(row[0]);
-    if (!f) continue;
-    const val = String(row[1] == null ? "" : row[1]).trim();
-    if (val) found[f.key] = val;
-  }
+  if (!signed) return { error: "not_template" };
 
   const form = {};
-  const briefLines = [];
-  const competitors = [];
-  let notes = "";
-  for (const f of FIELDS) {
-    const val = found[f.key];
-    if (!val) continue;
-    if (f.target === "competitor") { competitors.push(val); continue; }
-    if (f.target === "notes") { notes = val; continue; }
-    if (f.target.startsWith("form:")) { form[f.target.slice(5)] = val; continue; }
-    if (f.target.startsWith("brief:")) { briefLines.push(f.target.slice(6) + ": " + val); }
+  const sections = [];
+  let filledCount = 0;
+  for (const name of dataSheets) {
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, blankrows: false, defval: "" });
+    const { pairs, orphans } = pairsForSheet(rows);
+    const lines = [];
+    for (const p of pairs) {
+      filledCount++;
+      lines.push(display(p.label) + ": " + p.value);
+      // Company / industry pre-fill the form (Basic Info tab only, first hit wins).
+      if (low(name).includes("basic")) {
+        const l = low(p.label);
+        if (!form.company && l.includes("company name")) form.company = p.value;
+        if (!form.industry && l === "industry") form.industry = p.value;
+      }
+    }
+    for (const o of orphans) { filledCount++; lines.push(o); }
+    if (lines.length) sections.push("[" + name + "]\n" + lines.join("\n"));
   }
-  if (competitors.length) briefLines.push("Competitors: " + competitors.join(", "));
-
-  const filledCount = Object.keys(found).length;
   if (!filledCount) return { error: "template_empty" };
-  return { ok: true, form, brief: briefLines.join("\n"), notes, competitors, filledCount };
+  return { ok: true, form, brief: sections.join("\n\n").slice(0, 7000), filledCount };
 }
 
-// SSRF guard: accept ONLY a docs.google.com spreadsheet URL, and return just the
-// id so the caller builds the export URL itself. Sheet ids are long; require >=20
-// chars so we don't mis-match a "/d/e/" published-link segment.
+// SSRF guard: only a docs.google.com spreadsheet URL; return just the id so the
+// caller builds the export URL itself. Ids are long, so require >=20 chars.
 export function sheetIdFrom(u) {
   if (typeof u !== "string" || !u) return null;
   let host;
@@ -134,8 +185,6 @@ export function sheetIdFrom(u) {
   return m ? m[1] : null;
 }
 
-// Fetch the sheet's xlsx export. Only reachable for link-viewable sheets; a
-// private sheet redirects to a login page (HTML, not a zip) which we detect.
 async function fetchSheetXlsx(id) {
   const url = "https://docs.google.com/spreadsheets/d/" + id + "/export?format=xlsx";
   const ctrl = new AbortController();
@@ -145,8 +194,7 @@ async function fetchSheetXlsx(id) {
     if (!resp.ok) return { error: "not_accessible" };
     const buf = Buffer.from(await resp.arrayBuffer());
     if (buf.length > MAX_BYTES) return { error: "too_large", mb: (buf.length / 1048576).toFixed(1) };
-    // .xlsx is a zip: starts with "PK". Anything else (e.g. an HTML login page
-    // for a private sheet) means we could not actually read the sheet.
+    // .xlsx is a zip: starts with "PK". A private sheet returns an HTML login page.
     if (buf.length < 4 || buf[0] !== 0x50 || buf[1] !== 0x4b) return { error: "not_accessible" };
     return { buf };
   } catch (e) {
@@ -154,6 +202,11 @@ async function fetchSheetXlsx(id) {
   } finally {
     clearTimeout(timer);
   }
+}
+
+function readWorkbook(buf) {
+  try { return { wb: XLSX.read(buf, { type: "buffer" }) }; }
+  catch { return { error: "unreadable" }; }
 }
 
 export default async (req) => {
@@ -177,7 +230,9 @@ export default async (req) => {
     return json(400, { error: "no_file" });
   }
 
-  const out = extractFromWorkbook(buf);
+  const { wb, error } = readWorkbook(buf);
+  if (error) return json(422, { error });
+  const out = parseMediaBrief(wb);
   if (out.error) return json(422, out);
   return json(200, out);
 };
