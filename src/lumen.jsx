@@ -3176,7 +3176,12 @@ input,textarea,select,button{font-family:inherit}
         })}
 
         {showQR && !loading && <div ref={qrRef} role="group" aria-label={L("focusRepliesGroup",uiLang)} tabIndex={-1} style={{display:"flex",flexWrap:"wrap",gap:8,marginTop:-8,marginBottom:18,marginInlineStart:38,marginInlineEnd:0,outline:"none"}}>
-          {last.quickReplies.map((qr,idx) => <button key={idx} onClick={()=>sendMsg(qr,qr)} style={{background:"transparent",border:`1px solid ${LINK}`,color:LINK,borderRadius:16,padding:"6px 14px",fontSize:13,cursor:"pointer",fontWeight:600}}>{qr}</button>)}
+          {last.quickReplies.map((qr,idx) => {
+            // Action chip: the literal token @ATTACH (emitted by the model, never
+            // translated) opens the composer's file picker instead of sending text.
+            const isAttach = String(qr).trim().toUpperCase()==="@ATTACH";
+            return <button key={idx} onClick={isAttach?(()=>attachRef.current?.click()):(()=>sendMsg(qr,qr))} disabled={isAttach&&(loading||attaching)} style={{background:"transparent",border:`1px solid ${LINK}`,color:LINK,borderRadius:16,padding:"6px 14px",fontSize:13,cursor:"pointer",fontWeight:600}}>{isAttach?("📎 "+AT("label",uiLang)):qr}</button>;
+          })}
         </div>}
         {loading && <div role="status" aria-live="polite" aria-label={L("thinking",uiLang)} style={{display:"flex",justifyContent:"flex-start",marginBottom:18,animation:"slideUpFade 0.3s ease-out forwards"}}>
           <div style={{flexShrink:0,marginInlineEnd:10,marginTop:2}}><OwlAvatar/></div>
