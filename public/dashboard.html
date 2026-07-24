@@ -40,7 +40,7 @@
   .refresh { background:var(--purple-soft); color:var(--purple); border:none; border-radius:8px; padding:8px 15px; cursor:pointer; font-family:inherit; font-size:12px; font-weight:700; }
   .refresh:disabled { opacity:.6; cursor:default; }
 
-  .wrap { max-width:980px; margin:26px auto; padding:0 20px; }
+  .wrap { max-width:1400px; margin:26px auto; padding:0 20px; }
   h1 { font-size:20px; margin:0 0 16px; color:var(--teal); letter-spacing:-.01em; }
   table { width:100%; border-collapse:collapse; background:#fff; border:1px solid var(--border); border-radius:14px; overflow:hidden; box-shadow:var(--shadow-raise); }
   th, td { text-align:left; padding:12px 14px; font-size:13px; border-bottom:1px solid var(--border); }
@@ -54,7 +54,7 @@
   .muted { color:var(--muted); }
   .empty, .err { text-align:center; padding:40px; color:var(--muted); font-size:14px; }
   .err { color:var(--cherry); }
-  .kpis { display:grid; grid-template-columns:repeat(auto-fill, minmax(170px,1fr)); gap:12px; margin-bottom:18px; }
+  .kpis { display:grid; grid-template-columns:repeat(auto-fit, minmax(170px,1fr)); gap:12px; margin-bottom:18px; }
   .kpi { background:#fff; border:1px solid var(--border); border-radius:14px; padding:15px 16px; box-shadow:var(--shadow-raise); }
   .kpi .v { font-size:23px; font-weight:800; color:var(--teal); font-variant-numeric:tabular-nums; letter-spacing:-.02em; }
   .kpi .l { font-size:10.5px; color:var(--muted); margin-top:4px; line-height:1.4; }
@@ -82,7 +82,7 @@
   th.sortable { cursor:pointer; user-select:none; white-space:nowrap; }
   th.sortable:hover { color:var(--purple); }
   th.sortable .sorthint { opacity:.5; font-size:10px; }
-  .fclear { background:transparent; border:1px solid var(--border); border-radius:9px; padding:7px 13px; font-size:12px; cursor:pointer; font-family:inherit; color:var(--muted); }
+  .fclear { background:#fff; border:1px solid #c3ccd6; border-radius:9px; padding:7px 15px; font-size:12px; font-weight:700; cursor:pointer; font-family:inherit; color:var(--teal); }
   /* Active-filter chips: a visible, individually-removable summary of what's filtering. */
   #activeFilters { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:-4px 2px 16px; }
   #activeFilters:empty { display:none; }
