@@ -156,7 +156,10 @@
           <input id="briefUrl" type="url" placeholder="…or paste a Google Sheet link" style="flex:1;min-width:240px;"/>
           <button type="button" class="btn alt" id="briefUrlBtn">Load from link</button>
         </div>
-        <div style="font-size:11px;color:#94a3b8;margin-top:6px;">The sheet must be shared &quot;anyone with the link can view&quot;. If it's private, download it and upload the .xlsx instead.</div>
+        <div style="font-size:12px;color:#475569;margin-top:8px;display:flex;gap:7px;align-items:flex-start;background:#f4f6fb;border:1px solid #e2e8f0;border-radius:8px;padding:8px 11px;">
+          <span aria-hidden="true" style="font-size:13px;">&#9432;</span>
+          <span>For a pasted link to work, the sheet has to be shared so <b>anyone with the link can view</b>. If it stays private the assistant can't read it, so download it and upload the .xlsx instead.</span>
+        </div>
         <div id="briefStatus" style="display:none;font-size:12px;margin-top:10px;line-height:1.5;"></div>
       </div>
 
