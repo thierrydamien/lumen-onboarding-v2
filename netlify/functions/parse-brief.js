@@ -1,27 +1,31 @@
-// parse-brief: server-side parser for the Lumen Onboarding Brief template (.xlsx).
+// parse-brief: server-side parser for the Lumen Onboarding Brief template.
 //
-// Sales fills a FIXED template (label in column A, value in column B) and uploads
-// it on the sales page BEFORE generating a client link. We parse only the known
-// labels and ignore everything else, so a rep adding stray rows or notes can't
-// break extraction. A signature cell (A1) gates non-template uploads.
+// Two inputs, one parser:
+//   { base64 }   -> an uploaded .xlsx the rep filled from our template
+//   { sheetUrl } -> a pasted Google Sheet link. We NEVER fetch the raw URL
+//                   (SSRF): we validate host === docs.google.com, extract the
+//                   sheet id, and fetch the export endpoint WE build. This only
+//                   works when the sheet is shared "anyone with the link can
+//                   view"; a private sheet returns Google's HTML login page, which
+//                   we detect (not a zip) and report as not_accessible so the rep
+//                   downloads and uploads instead.
 //
-// Two OUTPUT channels with different downstream semantics:
-//   - brief : client-appropriate facts (brands, markets, competitors, channels,
-//             campaign, issues). The chat is told to SURFACE and CONFIRM these.
-//   - notes : the single "internal notes" row -> the existing CONFIDENTIAL notes
-//             channel the chat must never reveal.
-// Keeping them separate avoids leaking internal framing to the client.
+// Sales fills a FIXED template (label in column A, value in column B). We match
+// only known labels and ignore everything else, so stray rows can't break it. A
+// signature cell gates non-template inputs. We scan ALL tabs for the signature so
+// the template still parses when it is one tab in a larger workbook.
+//
+// Output splits into two channels with different downstream semantics:
+//   - brief : client-appropriate facts the chat SURFACES and confirms.
+//   - notes : the single "internal notes" row -> the CONFIDENTIAL notes channel
+//             the chat must never reveal.
 
 import * as XLSX from "xlsx";
 
 const SIGNATURE = "Lumen Onboarding Brief";
-const MAX_BYTES = 2 * 1024 * 1024; // reps upload a small filled template, never a data dump
+const MAX_BYTES = 2 * 1024 * 1024; // a filled template is tiny; never a data dump
+const FETCH_MS = 6000;             // bound the Google fetch inside the function wall-clock
 
-// Canonical template spec. ONE source of truth: the generator script builds the
-// downloadable .xlsx from this, and the parser matches uploads against it.
-// target: where a filled value goes. "form:*" prefills a visible sales field;
-// "brief:*" is a surfaceable fact; "competitor" collects into a list; "notes" is
-// the confidential channel. label is matched case-insensitively, exact or prefix.
 export const FIELD_SPEC = [
   { section: "BASIC INFORMATION" },
   { key: "company",     label: "Company name",                     target: "form:company" },
@@ -55,15 +59,14 @@ export const FIELD_SPEC = [
 ];
 
 const FIELDS = FIELD_SPEC.filter(f => f.key);
-
 const norm = s => String(s == null ? "" : s).replace(/\s+/g, " ").trim().toLowerCase();
 
 function json(status, body) {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 }
 
-// Match a sheet's column-A label to a spec field: exact normalized match, else
-// prefix (tolerates a rep appending "(optional)" etc. to a label cell).
+// Match a column-A label to a spec field: exact normalized match, else prefix
+// (tolerates a rep appending "(optional)" etc.).
 function matchField(labelCell) {
   const n = norm(labelCell);
   if (!n) return null;
@@ -74,36 +77,23 @@ function matchField(labelCell) {
   return null;
 }
 
-export default async (req) => {
-  if (req.method !== "POST") return json(405, { error: "method_not_allowed" });
+// Parse a workbook buffer into the two channels. Scans every sheet for the
+// signature row so the template parses even as one tab among many.
+function extractFromWorkbook(buf) {
+  let wb;
+  try { wb = XLSX.read(buf, { type: "buffer" }); }
+  catch { return { error: "unreadable" }; }
 
-  let body;
-  try { body = await req.json(); } catch { return json(400, { error: "bad_request" }); }
-  const b64 = typeof body.base64 === "string" ? body.base64 : "";
-  if (!b64) return json(400, { error: "no_file" });
-
-  let buf;
-  try { buf = Buffer.from(b64, "base64"); } catch { return json(400, { error: "unreadable" }); }
-  if (!buf.length) return json(400, { error: "empty" });
-  if (buf.length > MAX_BYTES) return json(413, { error: "too_large", mb: (buf.length / 1048576).toFixed(1) });
-
-  let rows;
-  try {
-    const wb = XLSX.read(buf, { type: "buffer" });
-    const ws = wb.Sheets[wb.SheetNames[0]];
-    if (!ws) return json(422, { error: "unreadable" });
-    rows = XLSX.utils.sheet_to_json(ws, { header: 1, blankrows: false, defval: "" });
-  } catch {
-    return json(422, { error: "unreadable" });
+  let rows = null;
+  for (const name of wb.SheetNames) {
+    const ws = wb.Sheets[name];
+    if (!ws) continue;
+    const r = XLSX.utils.sheet_to_json(ws, { header: 1, blankrows: false, defval: "" });
+    const firstRow = (r[0] || []).map(norm).join(" ");
+    if (firstRow.includes(norm(SIGNATURE))) { rows = r; break; }
   }
+  if (!rows) return { error: "not_template" };
 
-  // Signature gate: A1 (or anywhere in the first row) must carry the template title.
-  const firstRow = (rows[0] || []).map(norm).join(" ");
-  if (!firstRow.includes(norm(SIGNATURE))) {
-    return json(422, { error: "not_template" });
-  }
-
-  // Build a label->value map from the sheet, keyed on column A.
   const found = {};
   for (const row of rows) {
     if (!Array.isArray(row) || row.length < 2) continue;
@@ -113,7 +103,6 @@ export default async (req) => {
     if (val) found[f.key] = val;
   }
 
-  // Assemble outputs.
   const form = {};
   const briefLines = [];
   const competitors = [];
@@ -129,8 +118,66 @@ export default async (req) => {
   if (competitors.length) briefLines.push("Competitors: " + competitors.join(", "));
 
   const filledCount = Object.keys(found).length;
-  if (!filledCount) return json(422, { error: "template_empty" });
+  if (!filledCount) return { error: "template_empty" };
+  return { ok: true, form, brief: briefLines.join("\n"), notes, competitors, filledCount };
+}
 
-  const brief = briefLines.join("\n");
-  return json(200, { ok: true, form, brief, notes, competitors, filledCount });
+// SSRF guard: accept ONLY a docs.google.com spreadsheet URL, and return just the
+// id so the caller builds the export URL itself. Sheet ids are long; require >=20
+// chars so we don't mis-match a "/d/e/" published-link segment.
+export function sheetIdFrom(u) {
+  if (typeof u !== "string" || !u) return null;
+  let host;
+  try { host = new URL(u).host.toLowerCase(); } catch { return null; }
+  if (host !== "docs.google.com") return null;
+  const m = u.match(/\/spreadsheets\/d\/([A-Za-z0-9_-]{20,})/);
+  return m ? m[1] : null;
+}
+
+// Fetch the sheet's xlsx export. Only reachable for link-viewable sheets; a
+// private sheet redirects to a login page (HTML, not a zip) which we detect.
+async function fetchSheetXlsx(id) {
+  const url = "https://docs.google.com/spreadsheets/d/" + id + "/export?format=xlsx";
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), FETCH_MS);
+  try {
+    const resp = await fetch(url, { redirect: "follow", signal: ctrl.signal });
+    if (!resp.ok) return { error: "not_accessible" };
+    const buf = Buffer.from(await resp.arrayBuffer());
+    if (buf.length > MAX_BYTES) return { error: "too_large", mb: (buf.length / 1048576).toFixed(1) };
+    // .xlsx is a zip: starts with "PK". Anything else (e.g. an HTML login page
+    // for a private sheet) means we could not actually read the sheet.
+    if (buf.length < 4 || buf[0] !== 0x50 || buf[1] !== 0x4b) return { error: "not_accessible" };
+    return { buf };
+  } catch (e) {
+    return { error: e && e.name === "AbortError" ? "fetch_timeout" : "fetch_failed" };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export default async (req) => {
+  if (req.method !== "POST") return json(405, { error: "method_not_allowed" });
+
+  let body;
+  try { body = await req.json(); } catch { return json(400, { error: "bad_request" }); }
+
+  let buf;
+  if (typeof body.sheetUrl === "string" && body.sheetUrl.trim()) {
+    const id = sheetIdFrom(body.sheetUrl.trim());
+    if (!id) return json(422, { error: "bad_url" });
+    const r = await fetchSheetXlsx(id);
+    if (r.error) return json(r.error === "too_large" ? 413 : 422, r);
+    buf = r.buf;
+  } else if (typeof body.base64 === "string" && body.base64) {
+    try { buf = Buffer.from(body.base64, "base64"); } catch { return json(400, { error: "unreadable" }); }
+    if (!buf.length) return json(400, { error: "empty" });
+    if (buf.length > MAX_BYTES) return json(413, { error: "too_large", mb: (buf.length / 1048576).toFixed(1) });
+  } else {
+    return json(400, { error: "no_file" });
+  }
+
+  const out = extractFromWorkbook(buf);
+  if (out.error) return json(422, out);
+  return json(200, out);
 };

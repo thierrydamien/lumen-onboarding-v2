@@ -152,6 +152,11 @@
           <label class="btn alt" for="briefFile" style="cursor:pointer;">Upload completed brief</label>
           <input id="briefFile" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style="display:none;"/>
         </div>
+        <div style="display:flex;gap:8px;align-items:center;margin-top:12px;flex-wrap:wrap;">
+          <input id="briefUrl" type="url" placeholder="…or paste a Google Sheet link" style="flex:1;min-width:240px;"/>
+          <button type="button" class="btn alt" id="briefUrlBtn">Load from link</button>
+        </div>
+        <div style="font-size:11px;color:#94a3b8;margin-top:6px;">The sheet must be shared &quot;anyone with the link can view&quot;. If it's private, download it and upload the .xlsx instead.</div>
         <div id="briefStatus" style="display:none;font-size:12px;margin-top:10px;line-height:1.5;"></div>
       </div>
 
@@ -431,7 +436,7 @@
     $("out").classList.remove("show"); // programmatic fill doesn't fire input events, so clear any stale link here too
     $("company").classList.remove("invalid"); $("contactName").classList.remove("invalid"); $("preparedBy").classList.remove("invalid"); $("pkgProduct").classList.remove("invalid"); $("pkgTier").classList.remove("invalid");
     $("err_company").textContent = ""; $("err_contactName").textContent = ""; $("err_preparedBy").textContent = ""; $("err_email").textContent = ""; $("err_pkg").textContent = ""; $("formErr").textContent = "";
-    _brief = ""; if ($("briefStatus")) $("briefStatus").style.display = "none"; // example data carries no uploaded brief
+    _brief = ""; $("briefUrl").value = ""; if ($("briefStatus")) $("briefStatus").style.display = "none"; // example data carries no imported brief
     updatePkgHint(); checkValid();
   }
 
@@ -538,66 +543,83 @@
   $("gen").addEventListener("click", generate);
   $("example").addEventListener("click", fillExample);
 
-  // Brief upload: a filled Lumen template is parsed server-side (parse-brief), then
-  // its fields pre-fill the form (rep reviews before generating) and its surfaceable
-  // facts go into _brief, which the assistant confirms with the client. The template's
-  // "internal notes" row merges into the visible notes box. Unrecognized uploads are
+  // Brief import: a filled Lumen template — uploaded .xlsx, or a link to a
+  // link-viewable Google Sheet — is parsed server-side (parse-brief). Its fields
+  // pre-fill the form (rep reviews before generating) and its surfaceable facts go
+  // into _brief, which the assistant confirms with the client. The template's
+  // "internal notes" row merges into the visible notes box. Unrecognized inputs are
   // rejected by the parser, so a rep can't feed the assistant an arbitrary dump.
   function briefMsg(txt, kind) {
     var el = $("briefStatus"); el.style.display = ""; el.textContent = txt;
     el.style.color = kind === "err" ? "#b42318" : (kind === "ok" ? "#0a5c2a" : "#64748b");
   }
   var BRIEF_ERRORS = {
-    not_template: "That doesn't look like the Lumen brief template. Download the template above, fill it in, and upload that file.",
-    template_empty: "That template looks empty. Fill in a few fields and upload again.",
+    not_template: "That doesn't look like the Lumen brief template. Download the template above, fill it in, and use that.",
+    template_empty: "That template looks empty. Fill in a few fields and try again.",
     too_large: "That file is too large. Use the Lumen brief template (it's small).",
-    unreadable: "Couldn't read that file. Make sure it's the .xlsx template, not a PDF or a link.",
-    no_file: "No file received. Try uploading again."
+    unreadable: "Couldn't read that file. Make sure it's the .xlsx template, not a PDF.",
+    no_file: "Nothing to read. Upload the template or paste a sheet link.",
+    bad_url: "That's not a Google Sheet link. Paste the sheet's URL, or upload the .xlsx instead.",
+    not_accessible: "Couldn't open that sheet. It must be shared \"anyone with the link can view\", or just download it and upload the .xlsx.",
+    fetch_timeout: "That sheet took too long to load. Try again, or download and upload it.",
+    fetch_failed: "Couldn't reach that sheet. Try again, or download and upload it."
   };
+  function applyBriefData(data, sourceLabel) {
+    if (data.form) {
+      if (data.form.company) $("company").value = data.form.company;
+      if (data.form.contactName) $("contactName").value = data.form.contactName;
+      if (data.form.email) $("email").value = data.form.email;
+      if (data.form.industry) $("industry").value = data.form.industry;
+    }
+    if (data.notes) { var cur = $("notes").value.trim(); $("notes").value = cur ? (cur + "\n" + data.notes) : data.notes; }
+    _brief = data.brief || "";
+    $("out").classList.remove("show"); // any previously generated link is now stale
+    var n = data.filledCount || 0;
+    briefMsg("Loaded " + n + " field" + (n === 1 ? "" : "s") + " from " + sourceLabel + ". Review the details below, then generate the link.", "ok");
+    ["company", "contactName", "email"].forEach(function (id) { $(id).classList.remove("invalid"); });
+    ["err_company", "err_contactName", "err_email"].forEach(function (id) { if ($(id)) $(id).textContent = ""; });
+    checkValid();
+  }
+  async function loadBrief(payload, readingMsg, sourceLabel) {
+    briefMsg(readingMsg, "");
+    try {
+      var res = await fetch("/.netlify/functions/parse-brief", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload)
+      });
+      var data = await res.json().catch(function () { return {}; });
+      if (!res.ok || !data.ok) { briefMsg(BRIEF_ERRORS[data && data.error] || "Couldn't read that brief. Check it's the Lumen template.", "err"); return; }
+      applyBriefData(data, sourceLabel);
+    } catch (e) {
+      briefMsg("Couldn't reach the server to read that brief. Try again.", "err");
+    }
+  }
   $("briefFile").addEventListener("change", function () {
     var file = this.files && this.files[0];
     this.value = ""; // let the rep re-upload the same filename
     if (!file) return;
     if (file.size > 2 * 1024 * 1024) { briefMsg(BRIEF_ERRORS.too_large, "err"); return; }
-    briefMsg("Reading " + file.name + "…", "");
     var reader = new FileReader();
     reader.onerror = function () { briefMsg(BRIEF_ERRORS.unreadable, "err"); };
-    reader.onload = async function () {
+    reader.onload = function () {
       var b64 = String(reader.result || "").split(",")[1] || "";
-      try {
-        var res = await fetch("/.netlify/functions/parse-brief", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ base64: b64, filename: file.name })
-        });
-        var data = await res.json().catch(function () { return {}; });
-        if (!res.ok || !data.ok) { briefMsg(BRIEF_ERRORS[data && data.error] || "Couldn't read that brief. Check it's the Lumen template.", "err"); return; }
-        if (data.form) {
-          if (data.form.company) $("company").value = data.form.company;
-          if (data.form.contactName) $("contactName").value = data.form.contactName;
-          if (data.form.email) $("email").value = data.form.email;
-          if (data.form.industry) $("industry").value = data.form.industry;
-        }
-        if (data.notes) { var cur = $("notes").value.trim(); $("notes").value = cur ? (cur + "\n" + data.notes) : data.notes; }
-        _brief = data.brief || "";
-        $("out").classList.remove("show"); // any previously generated link is now stale
-        var n = data.filledCount || 0;
-        briefMsg("Loaded " + n + " field" + (n === 1 ? "" : "s") + " from " + file.name + ". Review the details below, then generate the link.", "ok");
-        ["company", "contactName", "email"].forEach(function (id) { $(id).classList.remove("invalid"); });
-        ["err_company", "err_contactName", "err_email"].forEach(function (id) { if ($(id)) $(id).textContent = ""; });
-        checkValid();
-      } catch (e) {
-        briefMsg("Couldn't reach the server to read that brief. Try again.", "err");
-      }
+      loadBrief({ base64: b64, filename: file.name }, "Reading " + file.name + "…", file.name);
     };
     reader.readAsDataURL(file);
   });
+  function loadFromUrl() {
+    var url = $("briefUrl").value.trim();
+    if (!url) { briefMsg("Paste a Google Sheet link first.", "err"); return; }
+    loadBrief({ sheetUrl: url }, "Reading the linked sheet…", "the linked sheet");
+  }
+  $("briefUrlBtn").addEventListener("click", loadFromUrl);
+  $("briefUrl").addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); loadFromUrl(); } });
   bindCopy("link", "copy");
 
   // "Create another link": clear the client-specific fields so a rep can generate
   // the next client's link without hand-deleting everything. Keeps the rep's name,
   // product, package and language (usually the same across a batch).
   function resetForNext() {
-    ["company", "contactName", "email", "industry", "notes"].forEach(function (id) {
+    ["company", "contactName", "email", "industry", "notes", "briefUrl"].forEach(function (id) {
       var e = $(id); if (e) { e.value = ""; e.classList.remove("invalid"); }
     });
     ["err_company", "err_contactName", "err_email", "formErr"].forEach(function (id) { if ($(id)) $(id).textContent = ""; });
